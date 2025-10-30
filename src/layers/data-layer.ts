@@ -94,12 +94,11 @@ export class DataLayer {
     } else {
       const query = `
         SELECT *
-        FROM (
-          SELECT *
-          FROM parquet_data
-          WHERE x BETWEEN ? AND ?
-            AND y BETWEEN ? AND ?
-        ) TABLESAMPLE ?
+        FROM parquet_data
+        WHERE x BETWEEN ? AND ?
+          AND y BETWEEN ? AND ?
+        ORDER BY hash(tid)
+        LIMIT ?
       `;
       const data = await this.repository?.query(query, [
         bounds.minX,
