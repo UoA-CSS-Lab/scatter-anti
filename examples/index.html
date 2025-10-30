@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>scatter-anti Demo</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #1a1a1a;
+      color: #ffffff;
+      overflow: hidden;
+    }
+
+    h1 {
+      margin: 0 0 5px 0;
+      font-size: 20px;
+    }
+
+    .container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    .canvas-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+
+    /* Label canvas overlay styling */
+    canvas[style*="position: absolute"] {
+      top: 0;
+      left: 0;
+      z-index: 10;
+      border: none;
+      background: transparent;
+    }
+
+    .controls {
+      position: fixed;
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      align-items: center;
+      background: rgba(26, 26, 26, 0.9);
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 100;
+      left: 20px;
+    }
+
+    .controls:last-of-type {
+      top: 60px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background: #005a9e;
+    }
+
+    button:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    input[type="range"] {
+      width: 150px;
+    }
+
+    .info {
+      position: fixed;
+      background: rgba(42, 42, 42, 0.9);
+      padding: 10px 15px;
+      border-radius: 4px;
+      z-index: 100;
+      font-size: 14px;
+    }
+
+    .info:nth-of-type(1) {
+      top: 20px;
+      left: 20px;
+    }
+
+    #label-info {
+      top: 220px;
+      left: 20px;
+      max-width: 300px;
+    }
+
+    #point-tooltip {
+      position: fixed;
+      background: rgba(42, 42, 42, 0.95);
+      padding: 10px 15px;
+      border-radius: 4px;
+      z-index: 101;
+      font-size: 12px;
+      pointer-events: none;
+      display: none;
+      border: 2px solid #007acc;
+    }
+
+    .error {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 68, 68, 0.95);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      z-index: 200;
+      max-width: 500px;
+    }
+  </style>
+</head>
+<body>
+  <div class="canvas-container">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div id="error-message" class="error" style="display: none;"></div>
+
+  <div class="info">
+    <strong>Status:</strong> <span id="status">Initializing...</span>
+  </div>
+
+  <div class="info" id="label-info" style="display: none;">
+    <strong>Selected Label:</strong> <span id="label-text"></span><br>
+    <strong>Cluster:</strong> <span id="label-cluster"></span><br>
+    <strong>Count:</strong> <span id="label-count"></span>
+  </div>
+
+  <div id="point-tooltip">
+    <strong>Point Hovered</strong><br>
+    <strong>X:</strong> <span id="point-x"></span><br>
+    <strong>Y:</strong> <span id="point-y"></span><br>
+    <strong>Color:</strong> <span id="point-color"></span>
+  </div>
+
+  <div class="controls">
+    <button id="zoomIn">Zoom In</button>
+    <button id="zoomOut">Zoom Out</button>
+    <button id="resetView">Reset View</button>
+    <button id="showAllLabels">Show All Labels</button>
+    <label>
+      Zoom:
+      <input type="range" id="zoomSlider" min="10" max="1000" value="100" step="10">
+      <span id="zoomValue">1.0x</span>
+    </label>
+  </div>
+
+  <script type="module">
+    import { ScatterPlot, isWebGPUSupported, printDiagnostics } from '../dist/index.js';
+
+    const canvas = document.getElementById('canvas');
+    const statusEl = document.getElementById('status');
+    const errorEl = document.getElementById('error-message');
+    const randomizeBtn = document.getElementById('randomize');
+    const addPointsBtn = document.getElementById('addPoints');
+    const clearPointsBtn = document.getElementById('clearPoints');
+    const pointSizeInput = document.getElementById('pointSize');
+    const pointSizeValue = document.getElementById('pointSizeValue');
+    const zoomInBtn = document.getElementById('zoomIn');
+    const zoomOutBtn = document.getElementById('zoomOut');
+    const resetViewBtn = document.getElementById('resetView');
+    const zoomSlider = document.getElementById('zoomSlider');
+    const zoomValue = document.getElementById('zoomValue');
+    const showAllLabelsBtn = document.getElementById('showAllLabels');
+
+    let scatterPlot = null;
+    let selectedLabelText = null; // Track selected label for filtering
+
+    // Run diagnostics first
+    console.log('Running WebGPU diagnostics...');
+    await printDiagnostics();
+
+    // Check WebGPU support
+    if (!isWebGPUSupported()) {
+      errorEl.textContent = 'WebGPU is not supported in your browser. Please use Chrome/Edge 113+ or Safari 18+. Check the console for detailed diagnostics.';
+      errorEl.style.display = 'block';
+      statusEl.textContent = 'WebGPU not supported';
+      disableControls();
+    } else {
+      initializeDemo();
+    }
+
+    async function initializeDemo() {
+      try {
+        statusEl.textContent = 'Initializing WebGPU...';
+
+        // Set canvas size to window size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Create scatter plot
+        scatterPlot = new ScatterPlot({
+          canvas: canvas,
+          dataUrl: './caGW6XbYcH7HBWRdNlHk.parquet',
+          labelUrl: './caGW6XbYcH7HBWRdNlHk.geojson',
+          backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
+          preferPointColumn: 'favorite_count',
+          labelFilterLambda: (properties) => {
+            // If no label is selected, show all labels
+            if (selectedLabelText === null) {
+              return true;
+            }
+            // Otherwise, only show the selected label
+            return properties.cluster_label === selectedLabelText;
+          },
+          onLabelClick: (label) => {
+            console.log('Label clicked:', label);
+
+            // Set selected label (single selection mode)
+            selectedLabelText = label.text;
+
+            // Display selected label info
+            const labelInfo = document.getElementById('label-info');
+            const labelText = document.getElementById('label-text');
+            const labelCluster = document.getElementById('label-cluster');
+            const labelCount = document.getElementById('label-count');
+
+            if (labelInfo && labelText && labelCluster && labelCount) {
+              labelText.textContent = label.text;
+              labelCluster.textContent = label.cluster !== undefined ? String(label.cluster) : 'N/A';
+              labelCount.textContent = label.count !== undefined ? String(label.count) : 'N/A';
+              labelInfo.style.display = 'block';
+            }
+
+            // Update the filter to show only this label
+            scatterPlot.update({
+              labelFilterLambda: (properties) => {
+                return properties.cluster_label === selectedLabelText;
+              }
+            });
+          },
+          onPointHover: (point, index) => {
+            const tooltip = document.getElementById('point-tooltip');
+
+            if (point && tooltip) {
+              // Show tooltip with point data
+              const pointX = document.getElementById('point-x');
+              const pointY = document.getElementById('point-y');
+              const pointColor = document.getElementById('point-color');
+
+              if (pointX && pointY && pointColor) {
+                pointX.textContent = point.x.toFixed(4);
+                pointY.textContent = point.y.toFixed(4);
+                pointColor.textContent = `rgba(${Math.round(point.color.r * 255)}, ${Math.round(point.color.g * 255)}, ${Math.round(point.color.b * 255)}, ${point.color.a.toFixed(2)})`;
+                tooltip.style.display = 'block';
+              }
+            } else if (tooltip) {
+              // Hide tooltip when not hovering
+              tooltip.style.display = 'none';
+            }
+          },
+          hoverOutlineOptions: {
+            enabled: true,
+            color: 'black',
+            width: 2
+          },
+          hoverScaleFactor: 1.5,
+        });
+
+        await scatterPlot.initialize();
+        scatterPlot.render();
+
+        statusEl.textContent = 'Ready!';
+
+        setupEventListeners();
+      } catch (error) {
+        console.error('Initialization error:', error);
+        errorEl.innerHTML = `<strong>Error:</strong> ${error.message.replace(/\n/g, '<br>')}<br><br><em>Check the browser console for detailed diagnostics.</em>`;
+        errorEl.style.display = 'block';
+        statusEl.textContent = 'Failed to initialize';
+        disableControls();
+      }
+    }
+
+    function setupEventListeners() {
+      // Show All Labels button
+      showAllLabelsBtn.addEventListener('click', () => {
+        // Clear selection
+        selectedLabelText = null;
+
+        // Hide label info panel
+        const labelInfo = document.getElementById('label-info');
+        if (labelInfo) {
+          labelInfo.style.display = 'none';
+        }
+
+        // Update filter to show all labels
+        scatterPlot.update({
+          labelFilterLambda: (properties) => {
+            return true; // Show all labels
+          }
+        });
+      });
+
+      // Zoom controls
+      zoomInBtn.addEventListener('click', () => {
+        scatterPlot.zoomIn();
+        updateZoomDisplay();
+      });
+
+      zoomOutBtn.addEventListener('click', () => {
+        scatterPlot.zoomOut();
+        updateZoomDisplay();
+      });
+
+      resetViewBtn.addEventListener('click', () => {
+        scatterPlot.resetView();
+        updateZoomDisplay();
+        zoomSlider.value = 100;
+      });
+
+      zoomSlider.addEventListener('input', (e) => {
+        const zoom = parseInt(e.target.value) / 100;
+        scatterPlot.setZoom(zoom);
+        updateZoomDisplay();
+      });
+
+      // Mouse wheel zoom
+      canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+        const newZoom = scatterPlot.getZoom() * zoomFactor;
+
+        // Get mouse position relative to canvas
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // Zoom to the point under the mouse cursor
+        scatterPlot.zoomToPoint(newZoom, mouseX, mouseY);
+        updateZoomDisplay();
+        zoomSlider.value = Math.round(scatterPlot.getZoom() * 100);
+      });
+
+      // Pan with mouse drag
+      let isDragging = false;
+      let lastX = 0;
+      let lastY = 0;
+
+      canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        canvas.style.cursor = 'grabbing';
+      });
+
+      canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const dx = (e.clientX - lastX) / canvas.width * 2;
+        const dy = -(e.clientY - lastY) / canvas.height * 2;
+
+        scatterPlot.pan(dx, dy);
+
+        lastX = e.clientX;
+        lastY = e.clientY;
+      });
+
+      canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+        canvas.style.cursor = 'grab';
+      });
+
+      canvas.addEventListener('mouseleave', () => {
+        isDragging = false;
+        canvas.style.cursor = 'grab';
+      });
+
+      canvas.style.cursor = 'grab';
+
+      // Position tooltip near mouse
+      canvas.addEventListener('mousemove', (e) => {
+        const tooltip = document.getElementById('point-tooltip');
+        if (tooltip && tooltip.style.display === 'block') {
+          tooltip.style.left = (e.clientX + 15) + 'px';
+          tooltip.style.top = (e.clientY + 15) + 'px';
+        }
+      });
+
+      // Handle window resize
+      window.addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        scatterPlot.resize(window.innerWidth, window.innerHeight);
+      });
+    }
+
+    function updateZoomDisplay() {
+      const zoom = scatterPlot.getZoom();
+      zoomValue.textContent = `${zoom.toFixed(1)}x`;
+      statusEl.textContent = `Zoom: ${zoom.toFixed(1)}x`;
+    }
+
+
+    function disableControls() {
+      randomizeBtn.disabled = true;
+      addPointsBtn.disabled = true;
+      clearPointsBtn.disabled = true;
+      pointSizeInput.disabled = true;
+      zoomInBtn.disabled = true;
+      zoomOutBtn.disabled = true;
+      resetViewBtn.disabled = true;
+      showAllLabelsBtn.disabled = true;
+      zoomSlider.disabled = true;
+    }
+  </script>
+</body>
+</html>

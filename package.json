@@ -1,0 +1,27 @@
+{
+  "name": "scatter-anti",
+  "version": "0.1.0",
+  "description": "A TypeScript library for plotting scatter charts using WebGPU",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "serve": "npx http-server . -p 8080"
+  },
+  "keywords": [
+    "scatter",
+    "plot",
+    "chart",
+    "webgpu",
+    "visualization",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@duckdb/duckdb-wasm": "^1.30.0",
+    "@webgpu/types": "^0.1.40",
+    "typescript": "^5.3.3"
+  }
+}
