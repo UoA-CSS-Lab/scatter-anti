@@ -5,7 +5,6 @@ export interface LabelLayerOptions {
   canvas: HTMLCanvasElement;
   maxLabels?: number;
   minLabelDistance?: number;
-  labels?: Label[];
   filterLambda?: LabelFilterLambda;
   onLabelClick?: (label: Label) => void;
   onPointHover?: PointHoverCallback;
@@ -56,7 +55,7 @@ export class LabelLayer {
     this.canvas = options.canvas;
     this.maxLabels = options.maxLabels ?? this.maxLabels;
     this.minLabelDistance = options.minLabelDistance ?? this.minLabelDistance;
-    this.labels = options.labels ?? [];
+    this.labels = [];
     this.filterLambda = options.filterLambda;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
@@ -430,6 +429,45 @@ export class LabelLayer {
    */
   setFilterLambda(filterLambda?: LabelFilterLambda): void {
     this.filterLambda = filterLambda;
+  }
+
+  /**
+   * Set maximum number of labels to display
+   */
+  setMaxLabels(maxLabels: number): void {
+    this.maxLabels = maxLabels;
+  }
+
+  /**
+   * Set label click callback
+   */
+  setOnLabelClick(callback?: (label: Label) => void): void {
+    this.onLabelClick = callback;
+  }
+
+  /**
+   * Set point hover callback
+   */
+  setOnPointHover(callback?: PointHoverCallback): void {
+    this.onPointHover = callback;
+  }
+
+  /**
+   * Set hover outline options
+   */
+  setHoverOutlineOptions(options: HoverOutlineOptions): void {
+    this.hoverOutlineOptions = {
+      enabled: options.enabled ?? this.hoverOutlineOptions.enabled,
+      color: options.color ?? this.hoverOutlineOptions.color,
+      width: options.width ?? this.hoverOutlineOptions.width
+    };
+  }
+
+  /**
+   * Set point hover scale factor
+   */
+  setHoverScaleFactor(factor: number): void {
+    this.pointHoverScaleFactor = factor;
   }
 
   /**

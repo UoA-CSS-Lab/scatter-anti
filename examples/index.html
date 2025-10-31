@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>scatter-anti Demo</title>
+  <title>scatter-anti Demo - All ScatterPlotOptions</title>
   <style>
     body {
       margin: 0;
@@ -19,13 +19,13 @@
       font-size: 20px;
     }
 
-    .container {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 1;
+    h2 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: #aaa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
 
     .canvas-container {
@@ -53,31 +53,44 @@
       background: transparent;
     }
 
-    .controls {
+    .control-panel {
       position: fixed;
-      display: flex;
-      gap: 15px;
-      flex-wrap: wrap;
-      align-items: center;
-      background: rgba(26, 26, 26, 0.9);
+      background: rgba(26, 26, 26, 0.95);
       padding: 15px;
       border-radius: 8px;
       z-index: 100;
-      left: 20px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
 
-    .controls:last-of-type {
-      top: 60px;
+    .control-group {
+      margin-bottom: 15px;
+    }
+
+    .control-group:last-child {
+      margin-bottom: 0;
+    }
+
+    .control-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .control-row:last-child {
+      margin-bottom: 0;
     }
 
     button {
-      padding: 10px 20px;
+      padding: 8px 16px;
       background: #007acc;
       color: white;
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 13px;
+      transition: background 0.2s;
     }
 
     button:hover {
@@ -87,36 +100,92 @@
     button:disabled {
       background: #555;
       cursor: not-allowed;
+      opacity: 0.6;
+    }
+
+    button.secondary {
+      background: #555;
+    }
+
+    button.secondary:hover {
+      background: #666;
     }
 
     label {
       display: flex;
       align-items: center;
       gap: 8px;
+      font-size: 13px;
     }
 
     input[type="range"] {
-      width: 150px;
+      width: 120px;
     }
 
-    .info {
-      position: fixed;
-      background: rgba(42, 42, 42, 0.9);
-      padding: 10px 15px;
+    input[type="number"] {
+      width: 80px;
+      padding: 6px;
+      background: #333;
+      border: 1px solid #555;
       border-radius: 4px;
-      z-index: 100;
-      font-size: 14px;
+      color: white;
+      font-size: 13px;
     }
 
-    .info:nth-of-type(1) {
+    select {
+      padding: 6px 10px;
+      background: #333;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: white;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .info-panel {
+      position: fixed;
+      background: rgba(42, 42, 42, 0.95);
+      padding: 12px 15px;
+      border-radius: 6px;
+      z-index: 100;
+      font-size: 13px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+
+    #status-panel {
       top: 20px;
       left: 20px;
     }
 
     #label-info {
-      top: 220px;
+      top: 80px;
       left: 20px;
       max-width: 300px;
+    }
+
+    #view-controls {
+      top: 20px;
+      right: 20px;
+      min-width: 280px;
+    }
+
+    #point-controls {
+      top: 240px;
+      right: 20px;
+      min-width: 280px;
+    }
+
+    #hover-controls {
+      top: 460px;
+      right: 20px;
+      min-width: 280px;
+    }
+
+    #label-controls {
+      bottom: 20px;
+      right: 20px;
+      min-width: 280px;
     }
 
     #point-tooltip {
@@ -143,6 +212,13 @@
       z-index: 200;
       max-width: 500px;
     }
+
+    .value-display {
+      min-width: 50px;
+      text-align: right;
+      font-weight: 600;
+      color: #007acc;
+    }
   </style>
 </head>
 <body>
@@ -152,11 +228,11 @@
 
   <div id="error-message" class="error" style="display: none;"></div>
 
-  <div class="info">
+  <div class="info-panel" id="status-panel">
     <strong>Status:</strong> <span id="status">Initializing...</span>
   </div>
 
-  <div class="info" id="label-info" style="display: none;">
+  <div class="info-panel" id="label-info" style="display: none;">
     <strong>Selected Label:</strong> <span id="label-text"></span><br>
     <strong>Cluster:</strong> <span id="label-cluster"></span><br>
     <strong>Count:</strong> <span id="label-count"></span>
@@ -169,16 +245,116 @@
     <strong>Color:</strong> <span id="point-color"></span>
   </div>
 
-  <div class="controls">
-    <button id="zoomIn">Zoom In</button>
-    <button id="zoomOut">Zoom Out</button>
-    <button id="resetView">Reset View</button>
-    <button id="showAllLabels">Show All Labels</button>
-    <label>
-      Zoom:
-      <input type="range" id="zoomSlider" min="10" max="1000" value="100" step="10">
-      <span id="zoomValue">1.0x</span>
-    </label>
+  <!-- View Controls -->
+  <div class="control-panel" id="view-controls">
+    <div class="control-group">
+      <h2>View Controls</h2>
+      <div class="control-row">
+        <button id="zoomIn">Zoom In</button>
+        <button id="zoomOut">Zoom Out</button>
+        <button id="resetView">Reset</button>
+      </div>
+      <div class="control-row">
+        <label style="flex: 1;">
+          Zoom:
+          <input type="range" id="zoomSlider" min="10" max="1000" value="100" step="10">
+          <span class="value-display" id="zoomValue">1.0x</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Point Controls -->
+  <div class="control-panel" id="point-controls">
+    <div class="control-group">
+      <h2>Point Options</h2>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          Size Strategy:
+          <select id="pointSizeStrategy">
+            <option value="data">Data-based (favorite_count)</option>
+            <option value="uniform">Uniform</option>
+            <option value="random">Random</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          Color Scheme:
+          <select id="pointColorScheme">
+            <option value="data">Data-based (viridis)</option>
+            <option value="rainbow">Rainbow</option>
+            <option value="heatmap">Heatmap</option>
+            <option value="blue">Blue Monochrome</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          Visible Limit:
+          <input type="number" id="visiblePointLimit" min="1000" max="1000000" step="1000" value="100000">
+        </label>
+      </div>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          Hover Scale:
+          <input type="range" id="hoverScale" min="10" max="30" value="15" step="1">
+          <span class="value-display" id="hoverScaleValue">1.5x</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hover Outline Controls -->
+  <div class="control-panel" id="hover-controls">
+    <div class="control-group">
+      <h2>Hover Outline</h2>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          <input type="checkbox" id="hoverOutlineEnabled" checked>
+          Enable Hover Outline
+        </label>
+      </div>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          Outline Color:
+          <input type="color" id="hoverOutlineColor" value="#ffffff">
+        </label>
+      </div>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          Outline Width:
+          <input type="range" id="hoverOutlineWidth" min="1" max="5" value="2" step="0.5">
+          <span class="value-display" id="hoverOutlineWidthValue">2px</span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Label Controls -->
+  <div class="control-panel" id="label-controls">
+    <div class="control-group">
+      <h2>Label Options</h2>
+
+      <div class="control-row">
+        <label style="flex: 1;">
+          Max Labels:
+          <input type="range" id="maxLabels" min="0" max="100" value="50" step="5">
+          <span class="value-display" id="maxLabelsValue">50</span>
+        </label>
+      </div>
+
+      <div class="control-row">
+        <button id="showAllLabels" class="secondary" style="flex: 1;">Show All Labels</button>
+      </div>
+    </div>
   </div>
 
   <script type="module">
@@ -187,17 +363,31 @@
     const canvas = document.getElementById('canvas');
     const statusEl = document.getElementById('status');
     const errorEl = document.getElementById('error-message');
-    const randomizeBtn = document.getElementById('randomize');
-    const addPointsBtn = document.getElementById('addPoints');
-    const clearPointsBtn = document.getElementById('clearPoints');
-    const pointSizeInput = document.getElementById('pointSize');
-    const pointSizeValue = document.getElementById('pointSizeValue');
+
+    // View controls
     const zoomInBtn = document.getElementById('zoomIn');
     const zoomOutBtn = document.getElementById('zoomOut');
     const resetViewBtn = document.getElementById('resetView');
     const zoomSlider = document.getElementById('zoomSlider');
     const zoomValue = document.getElementById('zoomValue');
+
+    // Point controls
+    const pointSizeStrategy = document.getElementById('pointSizeStrategy');
+    const pointColorScheme = document.getElementById('pointColorScheme');
+    const visiblePointLimitInput = document.getElementById('visiblePointLimit');
+    const hoverScaleSlider = document.getElementById('hoverScale');
+    const hoverScaleValue = document.getElementById('hoverScaleValue');
+
+    // Label controls
+    const maxLabelsSlider = document.getElementById('maxLabels');
+    const maxLabelsValue = document.getElementById('maxLabelsValue');
     const showAllLabelsBtn = document.getElementById('showAllLabels');
+
+    // Hover outline controls
+    const hoverOutlineEnabled = document.getElementById('hoverOutlineEnabled');
+    const hoverOutlineColor = document.getElementById('hoverOutlineColor');
+    const hoverOutlineWidth = document.getElementById('hoverOutlineWidth');
+    const hoverOutlineWidthValue = document.getElementById('hoverOutlineWidthValue');
 
     let scatterPlot = null;
     let selectedLabelText = null; // Track selected label for filtering
@@ -216,6 +406,133 @@
       initializeDemo();
     }
 
+    // Point size lambda generators
+    function getPointSizeLambda(strategy) {
+      switch (strategy) {
+        case 'data':
+          // Use favorite_count column to scale point sizes
+          return (point, columns) => {
+            const favoriteCountIdx = columns.indexOf('favorite_count');
+            if (favoriteCountIdx === -1) return 4;
+
+            // Convert BigInt to number if needed
+            const rawValue = point[favoriteCountIdx];
+            const favoriteCount = typeof rawValue === 'bigint' ? Number(rawValue) : (rawValue || 0);
+
+            // Scale logarithmically for better visualization: size range 2-8 pixels
+            const size = 2 + Math.min(6, Math.log(favoriteCount + 1) / Math.log(1000) * 6);
+            return size;
+          };
+        case 'uniform':
+          return (point, columns) => 4;
+        case 'random':
+          return (point, columns) => 2 + Math.random() * 6;
+        default:
+          return (point, columns) => 4;
+      }
+    }
+
+    // Helper: Viridis colormap approximation
+    function viridis(t) {
+      // t should be in [0, 1]
+      t = Math.max(0, Math.min(1, t));
+
+      // Viridis colormap approximation using piecewise linear interpolation
+      const r = Math.pow(0.282 + 0.277 * t + 0.390 * Math.pow(t, 2), 1/2.2);
+      const g = Math.pow(0.004 + 0.536 * t - 0.143 * Math.pow(t, 2), 1/2.2);
+      const b = Math.pow(0.333 + 0.455 * t - 1.010 * Math.pow(t, 2), 1/2.2);
+
+      return { r, g, b, a: 0.8 };
+    }
+
+    // Helper: HSL to RGB conversion
+    function hslToRgb(h, s, l) {
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+      const m = l - c / 2;
+
+      let r, g, b;
+      if (h < 60) { r = c; g = x; b = 0; }
+      else if (h < 120) { r = x; g = c; b = 0; }
+      else if (h < 180) { r = 0; g = c; b = x; }
+      else if (h < 240) { r = 0; g = x; b = c; }
+      else if (h < 300) { r = x; g = 0; b = c; }
+      else { r = c; g = 0; b = x; }
+
+      return {
+        r: r + m,
+        g: g + m,
+        b: b + m,
+        a: 0.8
+      };
+    }
+
+    // Point color lambda generators
+    function getPointColorLambda(scheme) {
+      switch (scheme) {
+        case 'data':
+          // Use favorite_count with viridis colormap
+          return (point, columns) => {
+            const favoriteCountIdx = columns.indexOf('favorite_count');
+            if (favoriteCountIdx === -1) return { r: 0.5, g: 0.5, b: 0.8, a: 0.7 };
+
+            // Convert BigInt to number if needed
+            const rawValue = point[favoriteCountIdx];
+            const favoriteCount = typeof rawValue === 'bigint' ? Number(rawValue) : (rawValue || 0);
+
+            // Normalize to [0, 1] using logarithmic scale
+            const t = Math.min(1, Math.log(favoriteCount + 1) / Math.log(1000));
+            return viridis(t);
+          };
+        case 'rainbow':
+          // Rainbow colors based on position
+          return (point, columns) => {
+            const xIdx = columns.indexOf('x');
+            const yIdx = columns.indexOf('y');
+            if (xIdx === -1 || yIdx === -1) return { r: 0.5, g: 0.5, b: 0.8, a: 0.7 };
+
+            // Convert BigInt to number if needed (x/y are likely floats but be safe)
+            const rawX = point[xIdx];
+            const rawY = point[yIdx];
+            const x = typeof rawX === 'bigint' ? Number(rawX) : rawX;
+            const y = typeof rawY === 'bigint' ? Number(rawY) : rawY;
+
+            // Use position to generate hue (0-360)
+            const hue = ((x + y) * 180) % 360;
+            return hslToRgb(hue, 0.8, 0.6);
+          };
+        case 'heatmap':
+          // Heatmap: blue (cold) -> yellow -> red (hot)
+          return (point, columns) => {
+            const favoriteCountIdx = columns.indexOf('favorite_count');
+            if (favoriteCountIdx === -1) return { r: 0.5, g: 0.5, b: 0.8, a: 0.7 };
+
+            // Convert BigInt to number if needed
+            const rawValue = point[favoriteCountIdx];
+            const favoriteCount = typeof rawValue === 'bigint' ? Number(rawValue) : (rawValue || 0);
+
+            const t = Math.min(1, Math.log(favoriteCount + 1) / Math.log(1000));
+
+            if (t < 0.5) {
+              // Blue to yellow
+              const t2 = t * 2;
+              return { r: t2, g: t2, b: 1 - t2, a: 0.8 };
+            } else {
+              // Yellow to red
+              const t2 = (t - 0.5) * 2;
+              return { r: 1, g: 1 - t2, b: 0, a: 0.8 };
+            }
+          };
+        case 'blue':
+          return (point, columns) => {
+            const intensity = 0.3 + Math.random() * 0.5;
+            return { r: 0.1, g: 0.3, b: intensity, a: 0.7 };
+          };
+        default:
+          return (point, columns) => ({ r: 0.5, g: 0.5, b: 0.8, a: 0.7 });
+      }
+    }
+
     async function initializeDemo() {
       try {
         statusEl.textContent = 'Initializing WebGPU...';
@@ -224,25 +541,32 @@
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        // Create scatter plot
+        // Create scatter plot with initial options
         scatterPlot = new ScatterPlot({
           canvas: canvas,
           dataUrl: './caGW6XbYcH7HBWRdNlHk.parquet',
           labelUrl: './caGW6XbYcH7HBWRdNlHk.geojson',
-          backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
+          backgroundColor: { r: 0.05, g: 0.05, b: 0.05, a: 1 },
           preferPointColumn: 'favorite_count',
+
+          // Point rendering options
+          visiblePointLimit: parseInt(visiblePointLimitInput.value),
+          pointSizeLambda: getPointSizeLambda(pointSizeStrategy.value),
+          pointColorLambda: getPointColorLambda(pointColorScheme.value),
+
+          // Label options
+          maxLabels: parseInt(maxLabelsSlider.value),
           labelFilterLambda: (properties) => {
-            // If no label is selected, show all labels
             if (selectedLabelText === null) {
               return true;
             }
-            // Otherwise, only show the selected label
             return properties.cluster_label === selectedLabelText;
           },
+
+          // Interaction callbacks
           onLabelClick: (label) => {
             console.log('Label clicked:', label);
 
-            // Set selected label (single selection mode)
             selectedLabelText = label.text;
 
             // Display selected label info
@@ -265,11 +589,11 @@
               }
             });
           },
+
           onPointHover: (point, index) => {
             const tooltip = document.getElementById('point-tooltip');
 
             if (point && tooltip) {
-              // Show tooltip with point data
               const pointX = document.getElementById('point-x');
               const pointY = document.getElementById('point-y');
               const pointColor = document.getElementById('point-color');
@@ -281,16 +605,17 @@
                 tooltip.style.display = 'block';
               }
             } else if (tooltip) {
-              // Hide tooltip when not hovering
               tooltip.style.display = 'none';
             }
           },
+
+          // Hover appearance options
           hoverOutlineOptions: {
             enabled: true,
-            color: 'black',
+            color: 'white',
             width: 2
           },
-          hoverScaleFactor: 1.5,
+          hoverScaleFactor: parseFloat(hoverScaleSlider.value) / 10,
         });
 
         await scatterPlot.initialize();
@@ -309,26 +634,8 @@
     }
 
     function setupEventListeners() {
-      // Show All Labels button
-      showAllLabelsBtn.addEventListener('click', () => {
-        // Clear selection
-        selectedLabelText = null;
+      // ===== VIEW CONTROLS =====
 
-        // Hide label info panel
-        const labelInfo = document.getElementById('label-info');
-        if (labelInfo) {
-          labelInfo.style.display = 'none';
-        }
-
-        // Update filter to show all labels
-        scatterPlot.update({
-          labelFilterLambda: (properties) => {
-            return true; // Show all labels
-          }
-        });
-      });
-
-      // Zoom controls
       zoomInBtn.addEventListener('click', () => {
         scatterPlot.zoomIn();
         updateZoomDisplay();
@@ -357,12 +664,10 @@
         const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
         const newZoom = scatterPlot.getZoom() * zoomFactor;
 
-        // Get mouse position relative to canvas
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
 
-        // Zoom to the point under the mouse cursor
         scatterPlot.zoomToPoint(newZoom, mouseX, mouseY);
         updateZoomDisplay();
         zoomSlider.value = Math.round(scatterPlot.getZoom() * 100);
@@ -413,7 +718,98 @@
         }
       });
 
-      // Handle window resize
+      // ===== POINT CONTROLS =====
+
+      pointSizeStrategy.addEventListener('change', (e) => {
+        scatterPlot.update({
+          pointSizeLambda: getPointSizeLambda(e.target.value)
+        });
+      });
+
+      pointColorScheme.addEventListener('change', (e) => {
+        scatterPlot.update({
+          pointColorLambda: getPointColorLambda(e.target.value)
+        });
+      });
+
+      visiblePointLimitInput.addEventListener('change', (e) => {
+        const value = parseInt(e.target.value);
+        if (value > 0) {
+          scatterPlot.update({
+            visiblePointLimit: value
+          });
+        }
+      });
+
+      hoverScaleSlider.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value) / 10;
+        hoverScaleValue.textContent = `${value.toFixed(1)}x`;
+        scatterPlot.update({
+          hoverScaleFactor: value
+        });
+      });
+
+      // ===== HOVER OUTLINE CONTROLS =====
+
+      hoverOutlineEnabled.addEventListener('change', (e) => {
+        scatterPlot.update({
+          hoverOutlineOptions: {
+            enabled: e.target.checked,
+            color: hoverOutlineColor.value,
+            width: parseFloat(hoverOutlineWidth.value)
+          }
+        });
+      });
+
+      hoverOutlineColor.addEventListener('input', (e) => {
+        scatterPlot.update({
+          hoverOutlineOptions: {
+            enabled: hoverOutlineEnabled.checked,
+            color: e.target.value,
+            width: parseFloat(hoverOutlineWidth.value)
+          }
+        });
+      });
+
+      hoverOutlineWidth.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        hoverOutlineWidthValue.textContent = `${value}px`;
+        scatterPlot.update({
+          hoverOutlineOptions: {
+            enabled: hoverOutlineEnabled.checked,
+            color: hoverOutlineColor.value,
+            width: value
+          }
+        });
+      });
+
+      // ===== LABEL CONTROLS =====
+
+      maxLabelsSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        maxLabelsValue.textContent = value;
+        scatterPlot.update({
+          maxLabels: value
+        });
+      });
+
+      showAllLabelsBtn.addEventListener('click', () => {
+        selectedLabelText = null;
+
+        const labelInfo = document.getElementById('label-info');
+        if (labelInfo) {
+          labelInfo.style.display = 'none';
+        }
+
+        scatterPlot.update({
+          labelFilterLambda: (properties) => {
+            return true;
+          }
+        });
+      });
+
+      // ===== WINDOW RESIZE =====
+
       window.addEventListener('resize', () => {
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
@@ -427,17 +823,27 @@
       statusEl.textContent = `Zoom: ${zoom.toFixed(1)}x`;
     }
 
-
     function disableControls() {
-      randomizeBtn.disabled = true;
-      addPointsBtn.disabled = true;
-      clearPointsBtn.disabled = true;
-      pointSizeInput.disabled = true;
+      // View controls
       zoomInBtn.disabled = true;
       zoomOutBtn.disabled = true;
       resetViewBtn.disabled = true;
-      showAllLabelsBtn.disabled = true;
       zoomSlider.disabled = true;
+
+      // Point controls
+      pointSizeStrategy.disabled = true;
+      pointColorScheme.disabled = true;
+      visiblePointLimitInput.disabled = true;
+      hoverScaleSlider.disabled = true;
+
+      // Hover outline controls
+      hoverOutlineEnabled.disabled = true;
+      hoverOutlineColor.disabled = true;
+      hoverOutlineWidth.disabled = true;
+
+      // Label controls
+      maxLabelsSlider.disabled = true;
+      showAllLabelsBtn.disabled = true;
     }
   </script>
 </body>

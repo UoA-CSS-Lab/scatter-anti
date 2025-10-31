@@ -8,8 +8,8 @@ export interface Point {
   size?: number; // Optional point size in pixels (falls back to global pointSize if not specified)
 }
 
-export type PointSizeLambda = (point: any[]) => number;
-export type PointColorLambda = (point: any[]) => ColorRGBA;
+export type PointSizeLambda = (point: any[], columns: string[]) => number;
+export type PointColorLambda = (point: any[], columns: string[]) => ColorRGBA;
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
 export type PointHoverCallback = (point: Point | null, index: number | null) => void;
 
@@ -61,9 +61,6 @@ export interface ScatterPlotOptions {
 
   preferPointColumn?: string;
 
-  /** Labels to display on the scatter plot */
-  labels?: Label[];
-
   /** URL to fetch label GeoJSON data from (auto-loads during initialization) */
   labelUrl?: string;
 
@@ -84,20 +81,4 @@ export interface ScatterPlotOptions {
 
   /** Scale factor for hovered points (default: 1.3) */
   hoverScaleFactor?: number;
-}
-
-export interface ScatterPlotUpdateOptions {
-
-  /** New background color */
-  backgroundColor?: ColorRGBA;
-
-    visiblePointLimit?: number;
-
-    pointSizeLambda?: PointSizeLambda;
-
-    pointColorLambda?: PointColorLambda;
-
-    /** Filter function to control label visibility based on properties */
-    labelFilterLambda?: LabelFilterLambda;
-  preferPointColumn?: string;
 }

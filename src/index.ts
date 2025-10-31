@@ -7,7 +7,6 @@ export type {
   Point,
   ColorRGBA,
   ScatterPlotOptions,
-  ScatterPlotUpdateOptions,
   Label,
 } from './types.js';
 

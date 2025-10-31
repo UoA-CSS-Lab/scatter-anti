@@ -1,4 +1,4 @@
-import type {ScatterPlotOptions, ScatterPlotUpdateOptions} from './types.js';
+import type {ScatterPlotOptions} from './types.js';
 import { DataLayer } from './layers/data-layer.js';
 import { GpuLayer } from './layers/gpu-layer.js';
 import { LabelLayer } from './layers/label-layer.js';
@@ -40,7 +40,6 @@ export class ScatterPlot {
     this.labelLayer = new LabelLayer({
       canvas: options.canvas,
       maxLabels: options.maxLabels,
-      labels: options.labels,
       filterLambda: options.labelFilterLambda,
       onLabelClick: options.onLabelClick,
       onPointHover: (point, index) => this.handlePointHover(point, index, options.onPointHover),
@@ -109,7 +108,7 @@ export class ScatterPlot {
   /**
    * Update plot data and re-render
    */
-  async update(options: ScatterPlotUpdateOptions): Promise<void> {
+  async update(options: Partial<ScatterPlotOptions>): Promise<void> {
     if (options.pointSizeLambda !== undefined ||
         options.pointColorLambda !== undefined ||
         options.visiblePointLimit !== undefined) {
@@ -127,6 +126,40 @@ export class ScatterPlot {
 
     if (options.labelFilterLambda !== undefined) {
       this.labelLayer.setFilterLambda(options.labelFilterLambda);
+    }
+
+    if (options.labelUrl !== undefined) {
+      try {
+        const response = await fetch(options.labelUrl);
+        if (response.ok) {
+          const labelData = await response.json();
+          this.loadLabels(labelData);
+        } else {
+          console.warn(`Could not load labels from ${options.labelUrl}: ${response.status} ${response.statusText}`);
+        }
+      } catch (error) {
+        console.warn(`Error loading labels from ${options.labelUrl}:`, error);
+      }
+    }
+
+    if (options.maxLabels !== undefined) {
+      this.labelLayer.setMaxLabels(options.maxLabels);
+    }
+
+    if (options.onLabelClick !== undefined) {
+      this.labelLayer.setOnLabelClick(options.onLabelClick);
+    }
+
+    if (options.onPointHover !== undefined) {
+      this.labelLayer.setOnPointHover((point, index) => this.handlePointHover(point, index, options.onPointHover));
+    }
+
+    if (options.hoverOutlineOptions !== undefined) {
+      this.labelLayer.setHoverOutlineOptions(options.hoverOutlineOptions);
+    }
+
+    if (options.hoverScaleFactor !== undefined) {
+      this.labelLayer.setHoverScaleFactor(options.hoverScaleFactor);
     }
 
     this.render();

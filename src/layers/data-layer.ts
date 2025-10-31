@@ -33,8 +33,8 @@ export interface ProcessedData {
 export class DataLayer {
   private repository: ParquetReader | null = null;
   private visiblePointLimit: number = 100000;
-  private pointSizeLambda: PointSizeLambda = ((p) => 3);
-  private pointColorLambda: PointColorLambda = ((p) => ({ r: 0.3, g: 0.3, b: 0.8, a: 1 }));
+  private pointSizeLambda: PointSizeLambda = ((p, columns) => 3);
+  private pointColorLambda: PointColorLambda = ((p, columns) => ({ r: 0.3, g: 0.3, b: 0.8, a: 0.3 }));
   private preferPointColumn: string | null = null;
 
   // Spatial query optimization
@@ -263,7 +263,7 @@ export class DataLayer {
         point[j] = allColumns[j]?.get(i);
       }
 
-      const color = this.pointColorLambda(point);
+      const color = this.pointColorLambda(point, data.columns);
 
       // Direct columnar access for x/y coordinates
       instanceData[i * 7 + 0] = xColumn.get(i); // x
@@ -272,7 +272,7 @@ export class DataLayer {
       instanceData[i * 7 + 3] = color.g;
       instanceData[i * 7 + 4] = color.b;
       instanceData[i * 7 + 5] = color.a;
-      instanceData[i * 7 + 6] = this.pointSizeLambda(point);
+      instanceData[i * 7 + 6] = this.pointSizeLambda(point, data.columns);
     }
 
     console.log("process time: ", performance.now() - startTime, "ms, row count: ", data.rowCount)
