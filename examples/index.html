@@ -344,14 +344,6 @@
       <h2>Label Options</h2>
 
       <div class="control-row">
-        <label style="flex: 1;">
-          Max Labels:
-          <input type="range" id="maxLabels" min="0" max="100" value="50" step="5">
-          <span class="value-display" id="maxLabelsValue">50</span>
-        </label>
-      </div>
-
-      <div class="control-row">
         <button id="showAllLabels" class="secondary" style="flex: 1;">Show All Labels</button>
       </div>
     </div>
@@ -379,8 +371,6 @@
     const hoverScaleValue = document.getElementById('hoverScaleValue');
 
     // Label controls
-    const maxLabelsSlider = document.getElementById('maxLabels');
-    const maxLabelsValue = document.getElementById('maxLabelsValue');
     const showAllLabelsBtn = document.getElementById('showAllLabels');
 
     // Hover outline controls
@@ -555,7 +545,6 @@
           pointColorLambda: getPointColorLambda(pointColorScheme.value),
 
           // Label options
-          maxLabels: parseInt(maxLabelsSlider.value),
           labelFilterLambda: (properties) => {
             if (selectedLabelText === null) {
               return true;
@@ -785,14 +774,6 @@
 
       // ===== LABEL CONTROLS =====
 
-      maxLabelsSlider.addEventListener('input', (e) => {
-        const value = parseInt(e.target.value);
-        maxLabelsValue.textContent = value;
-        scatterPlot.update({
-          maxLabels: value
-        });
-      });
-
       showAllLabelsBtn.addEventListener('click', () => {
         selectedLabelText = null;
 
@@ -842,7 +823,6 @@
       hoverOutlineWidth.disabled = true;
 
       // Label controls
-      maxLabelsSlider.disabled = true;
       showAllLabelsBtn.disabled = true;
     }
   </script>

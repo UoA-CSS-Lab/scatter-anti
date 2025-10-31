@@ -39,7 +39,6 @@ export class ScatterPlot {
 
     this.labelLayer = new LabelLayer({
       canvas: options.canvas,
-      maxLabels: options.maxLabels,
       filterLambda: options.labelFilterLambda,
       onLabelClick: options.onLabelClick,
       onPointHover: (point, index) => this.handlePointHover(point, index, options.onPointHover),
@@ -140,10 +139,6 @@ export class ScatterPlot {
       } catch (error) {
         console.warn(`Error loading labels from ${options.labelUrl}:`, error);
       }
-    }
-
-    if (options.maxLabels !== undefined) {
-      this.labelLayer.setMaxLabels(options.maxLabels);
     }
 
     if (options.onLabelClick !== undefined) {

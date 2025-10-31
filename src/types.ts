@@ -64,9 +64,6 @@ export interface ScatterPlotOptions {
   /** URL to fetch label GeoJSON data from (auto-loads during initialization) */
   labelUrl?: string;
 
-  /** Maximum number of labels to display (shows top N by cluster count) */
-  maxLabels?: number;
-
   /** Filter function to control label visibility based on properties */
   labelFilterLambda?: LabelFilterLambda;
 

@@ -3,7 +3,6 @@ import type { DataLayer } from './data-layer.js';
 
 export interface LabelLayerOptions {
   canvas: HTMLCanvasElement;
-  maxLabels?: number;
   minLabelDistance?: number;
   filterLambda?: LabelFilterLambda;
   onLabelClick?: (label: Label) => void;
@@ -26,7 +25,6 @@ export class LabelLayer {
   private labelCanvas: HTMLCanvasElement | null = null;
   private labelContext: CanvasRenderingContext2D | null = null;
   private labels: Label[] = [];
-  private maxLabels: number = 50;
   private minLabelDistance: number = 40; // Minimum distance between labels in pixels
   private filterLambda?: LabelFilterLambda;
 
@@ -53,7 +51,6 @@ export class LabelLayer {
 
   constructor(options: LabelLayerOptions) {
     this.canvas = options.canvas;
-    this.maxLabels = options.maxLabels ?? this.maxLabels;
     this.minLabelDistance = options.minLabelDistance ?? this.minLabelDistance;
     this.labels = [];
     this.filterLambda = options.filterLambda;
@@ -285,12 +282,11 @@ export class LabelLayer {
       properties: feature.properties || {},
     }));
 
-    // Sort by count (descending) and take top N
+    // Sort by count (descending)
     this.labels = allLabels
-      .sort((a: Label, b: Label) => (b.count || 0) - (a.count || 0))
-      .slice(0, this.maxLabels);
+      .sort((a: Label, b: Label) => (b.count || 0) - (a.count || 0));
 
-    console.log(`Loaded ${this.labels.length} labels (from ${allLabels.length} total, maxLabels: ${this.maxLabels})`);
+    console.log(`Loaded ${this.labels.length} labels`);
     console.log('First label:', this.labels[0]);
     console.log('Label canvas:', this.labelCanvas);
     console.log('Label context:', this.labelContext);
@@ -429,13 +425,6 @@ export class LabelLayer {
    */
   setFilterLambda(filterLambda?: LabelFilterLambda): void {
     this.filterLambda = filterLambda;
-  }
-
-  /**
-   * Set maximum number of labels to display
-   */
-  setMaxLabels(maxLabels: number): void {
-    this.maxLabels = maxLabels;
   }
 
   /**
