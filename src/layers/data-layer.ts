@@ -1,5 +1,6 @@
 import { createParquetReader, ParquetData, ParquetReader } from '../repository.js';
 import type { ColorRGBA, PointSizeLambda, PointColorLambda, Point } from '../types.js';
+import * as sql from 'sql-bricks';
 
 export interface DataLayerOptions {
   visiblePointLimit?: number;
@@ -71,44 +72,26 @@ export class DataLayer {
   }
 
   private async runQuery(bounds: VisibleBounds): Promise<ParquetData | undefined> {
-    if (this.preferPointColumn != null) {
-      const query = `
-        SELECT *
-          FROM parquet_data
-          WHERE x BETWEEN ? AND ?
-            AND y BETWEEN ? AND ?
-          ORDER BY
-            ? DESC,
-            hash(tid)
-          LIMIT ?
-      `;
-      const data = await this.repository?.query(query, [
-        bounds.minX,
-        bounds.maxX,
-        bounds.minY,
-        bounds.maxY,
-        this.preferPointColumn,
-        this.visiblePointLimit
-      ]);
-      return data;
-    } else {
-      const query = `
-        SELECT *
-        FROM parquet_data
-        WHERE x BETWEEN ? AND ?
-          AND y BETWEEN ? AND ?
-        ORDER BY hash(tid)
-        LIMIT ?
-      `;
-      const data = await this.repository?.query(query, [
-        bounds.minX,
-        bounds.maxX,
-        bounds.minY,
-        bounds.maxY,
-        this.visiblePointLimit
-      ]);
-      return data;
-    }
+    const data = await this.repository?.query({
+      toString: () => {
+        let query = sql
+          .select('*')
+          .from('parquet_data')
+          .where(
+            sql.between('x', bounds.minX, bounds.maxX),
+            sql.between('y', bounds.minY, bounds.maxY)
+          );
+
+        if (this.preferPointColumn != null) {
+          // Use raw SQL for DuckDB-specific hash function and ORDER BY
+          query = query.orderBy(`${this.preferPointColumn} DESC`, 'hash(tid)');
+        } else {
+          query = query.orderBy('hash(tid)');
+        }
+        return `${query.toString()} LIMIT ${this.visiblePointLimit}`;
+      }
+    });
+    return data;
   }
 
   /**

@@ -51,12 +51,12 @@ export class ParquetReader {
         await this.conn.query(`CREATE TABLE IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`);
     }
 
-    async query(sql: string, params: any[]): Promise<ParquetData> {
+    async query(queryObj: any): Promise<ParquetData> {
         if (!this.conn) {
             throw new Error('Database not initialized. Call initialize() first.');
         }
 
-        const rawSql = formatSql(sql, params);
+        const rawSql = queryObj.toString();
         // console.log(rawSql);
         const result = await this.conn.query(rawSql);
 
@@ -111,48 +111,3 @@ export async function createParquetReader(): Promise<ParquetReader> {
     return reader;
 }
 
-// TODO: これはAIに生成させたやつ。ちゃんとしたクエリビルダのライブラリを探して使う
-/**
- * SQLテンプレートとパラメータから実行可能なSQL文を作成
- * 注意: この関数はデバッグ/ロギング用です。実際のクエリ実行にはプレースホルダーを使用してください
- */
-function formatSql(sql: string, params: any[]): string {
-    let index = 0;
-    return sql.replace(/\?/g, () => {
-        if (index >= params.length) {
-            return '?';
-        }
-        const param = params[index++];
-        return formatParam(param);
-    });
-}
-
-function formatParam(param: any): string {
-    if (param === null || param === undefined) {
-        return 'NULL';
-    }
-
-    if (typeof param === 'string') {
-        // TODO: シングルクォートをエスケープ
-        return `${param.replace(/'/g, "''")}`;
-    }
-
-    if (typeof param === 'number') {
-        return param.toString();
-    }
-
-    if (typeof param === 'boolean') {
-        return param ? 'TRUE' : 'FALSE';
-    }
-
-    if (param instanceof Date) {
-        return `'${param.toISOString()}'`;
-    }
-
-    if (Array.isArray(param)) {
-        return `(${param.map(formatParam).join(', ')})`;
-    }
-
-    // オブジェクトの場合はJSON文字列として扱う
-    return `'${JSON.stringify(param).replace(/'/g, "''")}'`;
-}
