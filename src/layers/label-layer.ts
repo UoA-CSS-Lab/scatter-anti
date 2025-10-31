@@ -261,6 +261,13 @@ export class LabelLayer {
     // Draw circular outline
     this.labelContext.beginPath();
     this.labelContext.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
+
+    // Fill with point's color
+    const color = this.hoveredPoint.color;
+    this.labelContext.fillStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${Math.round(color.a * 255)})`;
+    this.labelContext.fill();
+
+    // Draw outline stroke
     this.labelContext.strokeStyle = this.hoverOutlineOptions.color ?? 'black';
     this.labelContext.lineWidth = this.hoverOutlineOptions.width ?? 2;
     this.labelContext.stroke();
