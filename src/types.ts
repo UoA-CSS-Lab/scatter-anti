@@ -74,6 +74,50 @@ export interface StringFilter {
 /** Union type for all WHERE conditions */
 export type WhereCondition = NumericFilter | StringFilter;
 
+export interface DataOptions {
+  /** Maximum number of visible points to render */
+  visiblePointLimit?: number;
+
+  /** Function to determine point size from row data */
+  pointSizeLambda?: PointSizeLambda;
+
+  /** Function to determine point color from row data */
+  pointColorLambda?: PointColorLambda;
+
+  /** Preferred column name for point size (fallback if pointSizeLambda not provided) */
+  preferPointColumn?: string;
+
+  /** WHERE conditions to filter data (AND only) */
+  whereConditions?: WhereCondition[];
+}
+
+export interface GpuOptions {
+  /** Background color (default: transparent black) */
+  backgroundColor?: ColorRGBA;
+}
+
+export interface LabelOptions {
+  /** URL to fetch label GeoJSON data from (auto-loads during initialization) */
+  url?: string;
+
+  /** Font size for labels in pixels (default: 12) */
+  fontSize?: number;
+
+  /** Filter function to control label visibility based on properties */
+  filterLambda?: LabelFilterLambda;
+
+  /** Callback fired when a label is clicked */
+  onClick?: (label: Label) => void;
+
+  /** Options for point hover outline appearance */
+  hoverOutlineOptions?: HoverOutlineOptions;
+}
+
+export interface InteractionOptions {
+  /** Callback fired when a point is hovered */
+  onPointHover?: PointHoverCallback;
+}
+
 export interface ScatterPlotOptions {
   /** Canvas element to render to */
   canvas: HTMLCanvasElement;
@@ -81,35 +125,15 @@ export interface ScatterPlotOptions {
   /** URL to fetch Parquet data from */
   dataUrl: string;
 
-  /** Background color (default: transparent black) */
-  backgroundColor?: ColorRGBA;
+  /** Data layer options */
+  data?: DataOptions;
 
-  visiblePointLimit?: number;
+  /** GPU rendering options */
+  gpu?: GpuOptions;
 
-  pointSizeLambda?: PointSizeLambda;
+  /** Label layer options */
+  labels?: LabelOptions;
 
-  pointColorLambda?: PointColorLambda;
-
-  preferPointColumn?: string;
-
-  /** WHERE conditions to filter data (AND only) */
-  whereConditions?: WhereCondition[];
-
-  /** URL to fetch label GeoJSON data from (auto-loads during initialization) */
-  labelUrl?: string;
-
-  /** Filter function to control label visibility based on properties */
-  labelFilterLambda?: LabelFilterLambda;
-
-  /** Callback fired when a label is clicked */
-  onLabelClick?: (label: Label) => void;
-
-  /** Callback fired when a point is hovered */
-  onPointHover?: PointHoverCallback;
-
-  /** Options for point hover outline appearance */
-  hoverOutlineOptions?: HoverOutlineOptions;
-
-  /** Font size for labels in pixels (default: 12) */
-  labelFontSize?: number;
+  /** Interaction callbacks */
+  interaction?: InteractionOptions;
 }

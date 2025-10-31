@@ -545,74 +545,83 @@
         scatterPlot = new ScatterPlot({
           canvas: canvas,
           dataUrl: './caGW6XbYcH7HBWRdNlHk.parquet',
-          labelUrl: './caGW6XbYcH7HBWRdNlHk.geojson',
-          backgroundColor: { r: 0.05, g: 0.05, b: 0.05, a: 1 },
-          preferPointColumn: 'favorite_count',
 
-          // Point rendering options
-          visiblePointLimit: parseInt(visiblePointLimitInput.value),
-          pointSizeLambda: getPointSizeLambda(pointSizeStrategy.value),
-          pointColorLambda: getPointColorLambda(pointColorScheme.value),
+          // GPU rendering options
+          gpu: {
+            backgroundColor: { r: 0.05, g: 0.05, b: 0.05, a: 1 },
+          },
 
-          // Label options
-          labelFilterLambda: (properties) => {
-            if (selectedLabelText === null) {
-              return true;
-            }
-            return properties.cluster_label === selectedLabelText;
+          // Data layer options
+          data: {
+            preferPointColumn: 'favorite_count',
+            visiblePointLimit: parseInt(visiblePointLimitInput.value),
+            pointSizeLambda: getPointSizeLambda(pointSizeStrategy.value),
+            pointColorLambda: getPointColorLambda(pointColorScheme.value),
+          },
+
+          // Label layer options
+          labels: {
+            url: './caGW6XbYcH7HBWRdNlHk.geojson',
+            filterLambda: (properties) => {
+              if (selectedLabelText === null) {
+                return true;
+              }
+              return properties.cluster_label === selectedLabelText;
+            },
+            onClick: (label) => {
+              console.log('Label clicked:', label);
+
+              selectedLabelText = label.text;
+
+              // Display selected label info
+              const labelInfo = document.getElementById('label-info');
+              const labelText = document.getElementById('label-text');
+              const labelCluster = document.getElementById('label-cluster');
+              const labelCount = document.getElementById('label-count');
+
+              if (labelInfo && labelText && labelCluster && labelCount) {
+                labelText.textContent = label.text;
+                labelCluster.textContent = label.cluster !== undefined ? String(label.cluster) : 'N/A';
+                labelCount.textContent = label.count !== undefined ? String(label.count) : 'N/A';
+                labelInfo.style.display = 'block';
+              }
+
+              // Update the filter to show only this label
+              scatterPlot.update({
+                labels: {
+                  filterLambda: (properties) => {
+                    return properties.cluster_label === selectedLabelText;
+                  }
+                }
+              });
+            },
+            hoverOutlineOptions: {
+              enabled: true,
+              color: 'white',
+              width: 2
+            },
           },
 
           // Interaction callbacks
-          onLabelClick: (label) => {
-            console.log('Label clicked:', label);
+          interaction: {
+            onPointHover: (point, index) => {
+              const tooltip = document.getElementById('point-tooltip');
 
-            selectedLabelText = label.text;
+              if (point && tooltip) {
+                const pointX = document.getElementById('point-x');
+                const pointY = document.getElementById('point-y');
+                const pointColor = document.getElementById('point-color');
 
-            // Display selected label info
-            const labelInfo = document.getElementById('label-info');
-            const labelText = document.getElementById('label-text');
-            const labelCluster = document.getElementById('label-cluster');
-            const labelCount = document.getElementById('label-count');
-
-            if (labelInfo && labelText && labelCluster && labelCount) {
-              labelText.textContent = label.text;
-              labelCluster.textContent = label.cluster !== undefined ? String(label.cluster) : 'N/A';
-              labelCount.textContent = label.count !== undefined ? String(label.count) : 'N/A';
-              labelInfo.style.display = 'block';
-            }
-
-            // Update the filter to show only this label
-            scatterPlot.update({
-              labelFilterLambda: (properties) => {
-                return properties.cluster_label === selectedLabelText;
+                if (pointX && pointY && pointColor) {
+                  pointX.textContent = point.x.toFixed(4);
+                  pointY.textContent = point.y.toFixed(4);
+                  pointColor.textContent = `rgba(${Math.round(point.color.r * 255)}, ${Math.round(point.color.g * 255)}, ${Math.round(point.color.b * 255)}, ${point.color.a.toFixed(2)})`;
+                  tooltip.style.display = 'block';
+                }
+              } else if (tooltip) {
+                tooltip.style.display = 'none';
               }
-            });
-          },
-
-          onPointHover: (point, index) => {
-            const tooltip = document.getElementById('point-tooltip');
-
-            if (point && tooltip) {
-              const pointX = document.getElementById('point-x');
-              const pointY = document.getElementById('point-y');
-              const pointColor = document.getElementById('point-color');
-
-              if (pointX && pointY && pointColor) {
-                pointX.textContent = point.x.toFixed(4);
-                pointY.textContent = point.y.toFixed(4);
-                pointColor.textContent = `rgba(${Math.round(point.color.r * 255)}, ${Math.round(point.color.g * 255)}, ${Math.round(point.color.b * 255)}, ${point.color.a.toFixed(2)})`;
-                tooltip.style.display = 'block';
-              }
-            } else if (tooltip) {
-              tooltip.style.display = 'none';
             }
-          },
-
-          // Hover appearance options
-          hoverOutlineOptions: {
-            enabled: true,
-            color: 'white',
-            width: 2
           },
         });
 
@@ -720,13 +729,17 @@
 
       pointSizeStrategy.addEventListener('change', (e) => {
         scatterPlot.update({
-          pointSizeLambda: getPointSizeLambda(e.target.value)
+          data: {
+            pointSizeLambda: getPointSizeLambda(e.target.value)
+          }
         });
       });
 
       pointColorScheme.addEventListener('change', (e) => {
         scatterPlot.update({
-          pointColorLambda: getPointColorLambda(e.target.value)
+          data: {
+            pointColorLambda: getPointColorLambda(e.target.value)
+          }
         });
       });
 
@@ -734,7 +747,9 @@
         const value = parseInt(e.target.value);
         if (value > 0) {
           scatterPlot.update({
-            visiblePointLimit: value
+            data: {
+              visiblePointLimit: value
+            }
           });
         }
       });
@@ -743,20 +758,24 @@
 
       hoverOutlineEnabled.addEventListener('change', (e) => {
         scatterPlot.update({
-          hoverOutlineOptions: {
-            enabled: e.target.checked,
-            color: hoverOutlineColor.value,
-            width: parseFloat(hoverOutlineWidth.value)
+          labels: {
+            hoverOutlineOptions: {
+              enabled: e.target.checked,
+              color: hoverOutlineColor.value,
+              width: parseFloat(hoverOutlineWidth.value)
+            }
           }
         });
       });
 
       hoverOutlineColor.addEventListener('input', (e) => {
         scatterPlot.update({
-          hoverOutlineOptions: {
-            enabled: hoverOutlineEnabled.checked,
-            color: e.target.value,
-            width: parseFloat(hoverOutlineWidth.value)
+          labels: {
+            hoverOutlineOptions: {
+              enabled: hoverOutlineEnabled.checked,
+              color: e.target.value,
+              width: parseFloat(hoverOutlineWidth.value)
+            }
           }
         });
       });
@@ -765,10 +784,12 @@
         const value = parseFloat(e.target.value);
         hoverOutlineWidthValue.textContent = `${value}px`;
         scatterPlot.update({
-          hoverOutlineOptions: {
-            enabled: hoverOutlineEnabled.checked,
-            color: hoverOutlineColor.value,
-            width: value
+          labels: {
+            hoverOutlineOptions: {
+              enabled: hoverOutlineEnabled.checked,
+              color: hoverOutlineColor.value,
+              width: value
+            }
           }
         });
       });
@@ -779,7 +800,9 @@
         const value = parseInt(e.target.value);
         labelFontSizeValue.textContent = `${value}px`;
         scatterPlot.update({
-          labelFontSize: value
+          labels: {
+            fontSize: value
+          }
         });
       });
 
@@ -792,8 +815,10 @@
         }
 
         scatterPlot.update({
-          labelFilterLambda: (properties) => {
-            return true;
+          labels: {
+            filterLambda: (properties) => {
+              return true;
+            }
           }
         });
       });

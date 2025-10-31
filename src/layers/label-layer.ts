@@ -459,44 +459,30 @@ export class LabelLayer {
   }
 
   /**
-   * Set the filter lambda for controlling label visibility
+   * Update label layer options
    */
-  setFilterLambda(filterLambda?: LabelFilterLambda): void {
-    this.filterLambda = filterLambda;
-  }
-
-  /**
-   * Set label click callback
-   */
-  setOnLabelClick(callback?: (label: Label) => void): void {
-    this.onLabelClick = callback;
-  }
-
-  /**
-   * Set point hover callback
-   */
-  setOnPointHover(callback?: PointHoverCallback): void {
-    this.onPointHover = callback;
-  }
-
-  /**
-   * Set hover outline options
-   */
-  setHoverOutlineOptions(options: HoverOutlineOptions): void {
-    this.hoverOutlineOptions = {
-      enabled: options.enabled ?? this.hoverOutlineOptions.enabled,
-      color: options.color ?? this.hoverOutlineOptions.color,
-      width: options.width ?? this.hoverOutlineOptions.width,
-      minimumHoverSize: options.minimumHoverSize ?? this.hoverOutlineOptions.minimumHoverSize,
-      outlinedPointAddition: options.outlinedPointAddition ?? this.hoverOutlineOptions.outlinedPointAddition,
-    };
-  }
-
-  /**
-   * Set label font size
-   */
-  setLabelFontSize(size: number): void {
-    this.labelFontSize = size;
+  updateOptions(options: Partial<LabelLayerOptions>): void {
+    if (options.labelFontSize !== undefined) {
+      this.labelFontSize = options.labelFontSize;
+    }
+    if (options.filterLambda !== undefined) {
+      this.filterLambda = options.filterLambda;
+    }
+    if (options.onLabelClick !== undefined) {
+      this.onLabelClick = options.onLabelClick;
+    }
+    if (options.onPointHover !== undefined) {
+      this.onPointHover = options.onPointHover;
+    }
+    if (options.hoverOutlineOptions !== undefined) {
+      this.hoverOutlineOptions = {
+        enabled: options.hoverOutlineOptions.enabled ?? this.hoverOutlineOptions.enabled,
+        color: options.hoverOutlineOptions.color ?? this.hoverOutlineOptions.color,
+        width: options.hoverOutlineOptions.width ?? this.hoverOutlineOptions.width,
+        minimumHoverSize: options.hoverOutlineOptions.minimumHoverSize ?? this.hoverOutlineOptions.minimumHoverSize,
+        outlinedPointAddition: options.hoverOutlineOptions.outlinedPointAddition ?? this.hoverOutlineOptions.outlinedPointAddition,
+      };
+    }
   }
 
   /**

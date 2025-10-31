@@ -458,10 +458,12 @@ export class GpuLayer {
   }
 
   /**
-   * Update background color
+   * Update GPU layer options
    */
-  setBackgroundColor(color: ColorRGBA): void {
-    this.backgroundColor = color;
+  updateOptions(options: Partial<GpuLayerOptions>): void {
+    if (options.backgroundColor !== undefined) {
+      this.backgroundColor = options.backgroundColor;
+    }
   }
 
   /**

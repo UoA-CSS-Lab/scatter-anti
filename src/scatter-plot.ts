@@ -26,31 +26,31 @@ export class ScatterPlot {
 
     // Initialize the three layers
     this.dataLayer = new DataLayer({
-      visiblePointLimit: options.visiblePointLimit,
-      pointSizeLambda: options.pointSizeLambda,
-      pointColorLambda: options.pointColorLambda,
-      preferPointColumn: options.preferPointColumn,
-      whereConditions: options.whereConditions,
+      visiblePointLimit: options.data?.visiblePointLimit,
+      pointSizeLambda: options.data?.pointSizeLambda,
+      pointColorLambda: options.data?.pointColorLambda,
+      preferPointColumn: options.data?.preferPointColumn,
+      whereConditions: options.data?.whereConditions,
     });
 
     this.gpuLayer = new GpuLayer({
       canvas: options.canvas,
-      backgroundColor: options.backgroundColor,
+      backgroundColor: options.gpu?.backgroundColor,
     });
 
     this.labelLayer = new LabelLayer({
       canvas: options.canvas,
-      labelFontSize: options.labelFontSize,
-      filterLambda: options.labelFilterLambda,
-      onLabelClick: options.onLabelClick,
-      onPointHover: (point, index) => this.handlePointHover(point, index, options.onPointHover),
-      hoverOutlineOptions: options.hoverOutlineOptions,
+      labelFontSize: options.labels?.fontSize,
+      filterLambda: options.labels?.filterLambda,
+      onLabelClick: options.labels?.onClick,
+      onPointHover: (point, index) => this.handlePointHover(point, index, options.interaction?.onPointHover),
+      hoverOutlineOptions: options.labels?.hoverOutlineOptions,
       dataLayer: this.dataLayer,
     });
 
     // Store URLs for auto-fetch during initialization
     this.dataUrl = options.dataUrl;
-    this.labelUrl = options.labelUrl;
+    this.labelUrl = options.labels?.url;
   }
 
   /**
@@ -112,60 +112,59 @@ export class ScatterPlot {
     // Track if we need to re-query data
     let needsDataUpdate = false;
 
-    if (options.pointSizeLambda !== undefined ||
-        options.pointColorLambda !== undefined ||
-        options.visiblePointLimit !== undefined ||
-        options.whereConditions !== undefined) {
+    // Update data layer
+    if (options.data !== undefined) {
       this.dataLayer.updateOptions({
-        pointSizeLambda: options.pointSizeLambda,
-        pointColorLambda: options.pointColorLambda,
-        visiblePointLimit: options.visiblePointLimit,
-        preferPointColumn: options.preferPointColumn,
-        whereConditions: options.whereConditions,
+        pointSizeLambda: options.data.pointSizeLambda,
+        pointColorLambda: options.data.pointColorLambda,
+        visiblePointLimit: options.data.visiblePointLimit,
+        preferPointColumn: options.data.preferPointColumn,
+        whereConditions: options.data.whereConditions,
       });
 
       // WHERE conditions require re-querying data
-      if (options.whereConditions !== undefined) {
+      if (options.data.whereConditions !== undefined) {
         needsDataUpdate = true;
       }
     }
 
-    if (options.backgroundColor !== undefined) {
-      this.gpuLayer.setBackgroundColor(options.backgroundColor);
+    // Update GPU layer
+    if (options.gpu !== undefined) {
+      this.gpuLayer.updateOptions({
+        backgroundColor: options.gpu.backgroundColor,
+      });
     }
 
-    if (options.labelFilterLambda !== undefined) {
-      this.labelLayer.setFilterLambda(options.labelFilterLambda);
-    }
+    // Update label layer
+    if (options.labels !== undefined) {
+      this.labelLayer.updateOptions({
+        labelFontSize: options.labels.fontSize,
+        filterLambda: options.labels.filterLambda,
+        onLabelClick: options.labels.onClick,
+        hoverOutlineOptions: options.labels.hoverOutlineOptions,
+      });
 
-    if (options.labelUrl !== undefined) {
-      try {
-        const response = await fetch(options.labelUrl);
-        if (response.ok) {
-          const labelData = await response.json();
-          this.loadLabels(labelData);
-        } else {
-          console.warn(`Could not load labels from ${options.labelUrl}: ${response.status} ${response.statusText}`);
+      // Load labels if URL is provided
+      if (options.labels.url !== undefined) {
+        try {
+          const response = await fetch(options.labels.url);
+          if (response.ok) {
+            const labelData = await response.json();
+            this.loadLabels(labelData);
+          } else {
+            console.warn(`Could not load labels from ${options.labels.url}: ${response.status} ${response.statusText}`);
+          }
+        } catch (error) {
+          console.warn(`Error loading labels from ${options.labels.url}:`, error);
         }
-      } catch (error) {
-        console.warn(`Error loading labels from ${options.labelUrl}:`, error);
       }
     }
 
-    if (options.onLabelClick !== undefined) {
-      this.labelLayer.setOnLabelClick(options.onLabelClick);
-    }
-
-    if (options.onPointHover !== undefined) {
-      this.labelLayer.setOnPointHover((point, index) => this.handlePointHover(point, index, options.onPointHover));
-    }
-
-    if (options.hoverOutlineOptions !== undefined) {
-      this.labelLayer.setHoverOutlineOptions(options.hoverOutlineOptions);
-    }
-
-    if (options.labelFontSize !== undefined) {
-      this.labelLayer.setLabelFontSize(options.labelFontSize);
+    // Update interaction callbacks
+    if (options.interaction !== undefined) {
+      this.labelLayer.updateOptions({
+        onPointHover: (point, index) => this.handlePointHover(point, index, options.interaction?.onPointHover),
+      });
     }
 
     // Trigger data update if WHERE conditions changed
