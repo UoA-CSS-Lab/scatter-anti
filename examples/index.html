@@ -614,7 +614,6 @@
             color: 'white',
             width: 2
           },
-          hoverScaleFactor: parseFloat(hoverScaleSlider.value) / 10,
         });
 
         await scatterPlot.initialize();
@@ -738,14 +737,6 @@
             visiblePointLimit: value
           });
         }
-      });
-
-      hoverScaleSlider.addEventListener('input', (e) => {
-        const value = parseFloat(e.target.value) / 10;
-        hoverScaleValue.textContent = `${value.toFixed(1)}x`;
-        scatterPlot.update({
-          hoverScaleFactor: value
-        });
       });
 
       // ===== HOVER OUTLINE CONTROLS =====

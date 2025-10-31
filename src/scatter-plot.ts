@@ -45,7 +45,6 @@ export class ScatterPlot {
       onLabelClick: options.onLabelClick,
       onPointHover: (point, index) => this.handlePointHover(point, index, options.onPointHover),
       hoverOutlineOptions: options.hoverOutlineOptions,
-      hoverScaleFactor: options.hoverScaleFactor,
       dataLayer: this.dataLayer,
     });
 
@@ -163,10 +162,6 @@ export class ScatterPlot {
 
     if (options.hoverOutlineOptions !== undefined) {
       this.labelLayer.setHoverOutlineOptions(options.hoverOutlineOptions);
-    }
-
-    if (options.hoverScaleFactor !== undefined) {
-      this.labelLayer.setHoverScaleFactor(options.hoverScaleFactor);
     }
 
     if (options.labelFontSize !== undefined) {
@@ -325,13 +320,6 @@ export class ScatterPlot {
    * Handle point hover events from label layer
    */
   private handlePointHover(point: any, index: number | null, userCallback?: any): void {
-    // Update GPU layer to scale the hovered point
-    const scaleFactor = this.labelLayer.getPointHoverScaleFactor();
-    this.gpuLayer.setHoveredPoint(index, scaleFactor);
-
-    // Re-render to show the scaled point
-    this.render();
-
     // Call user's callback if provided
     if (userCallback) {
       userCallback(point, index);

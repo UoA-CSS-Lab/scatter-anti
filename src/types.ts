@@ -27,6 +27,8 @@ export interface HoverOutlineOptions {
   color?: string;
   /** Outline stroke width in pixels (default: 2) */
   width?: number;
+  minimumHoverSize?: number,
+  outlinedPointAddition?: number,
 }
 
 export interface Label {
@@ -107,9 +109,6 @@ export interface ScatterPlotOptions {
 
   /** Options for point hover outline appearance */
   hoverOutlineOptions?: HoverOutlineOptions;
-
-  /** Scale factor for hovered points (default: 1.3) */
-  hoverScaleFactor?: number;
 
   /** Font size for labels in pixels (default: 12) */
   labelFontSize?: number;

@@ -9,8 +9,9 @@ export interface LabelLayerOptions {
   onLabelClick?: (label: Label) => void;
   onPointHover?: PointHoverCallback;
   hoverOutlineOptions?: HoverOutlineOptions;
-  hoverScaleFactor?: number;
   dataLayer?: DataLayer;
+  outlinedPointAddition?: number;
+  minimumHoverSize?: number,
 }
 
 /**
@@ -48,7 +49,6 @@ export class LabelLayer {
   private hoveredPoint: Point | null = null;
   private hoveredPointIndex: number | null = null;
   private hoverOutlineOptions: HoverOutlineOptions;
-  private pointHoverScaleFactor: number;
   private dataLayer: DataLayer | null = null;
 
   constructor(options: LabelLayerOptions) {
@@ -60,7 +60,6 @@ export class LabelLayer {
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
     this.dataLayer = options.dataLayer ?? null;
-    this.pointHoverScaleFactor = options.hoverScaleFactor ?? 1.3;
     this.hoverOutlineOptions = {
       enabled: options.hoverOutlineOptions?.enabled ?? true,
       color: options.hoverOutlineOptions?.color ?? 'white',
@@ -254,7 +253,7 @@ export class LabelLayer {
     // Calculate the point radius in screen space
     // Points are scaled by zoom^0.3 in the shader
     const baseSize = this.hoveredPoint.size ?? 3;
-    const zoomScaledSize = baseSize * Math.pow(this.zoom, 0.3) * this.pointHoverScaleFactor;
+    const zoomScaledSize = Math.max(baseSize * Math.pow(this.zoom, 0.3) + (this.hoverOutlineOptions.outlinedPointAddition ?? 3), this.hoverOutlineOptions.minimumHoverSize ?? 10);
 
     // Convert to screen pixels (this is an approximation)
     const screenRadius = zoomScaledSize;
@@ -480,15 +479,10 @@ export class LabelLayer {
     this.hoverOutlineOptions = {
       enabled: options.enabled ?? this.hoverOutlineOptions.enabled,
       color: options.color ?? this.hoverOutlineOptions.color,
-      width: options.width ?? this.hoverOutlineOptions.width
+      width: options.width ?? this.hoverOutlineOptions.width,
+      minimumHoverSize: options.minimumHoverSize ?? this.hoverOutlineOptions.minimumHoverSize,
+      outlinedPointAddition: options.outlinedPointAddition ?? this.hoverOutlineOptions.outlinedPointAddition,
     };
-  }
-
-  /**
-   * Set point hover scale factor
-   */
-  setHoverScaleFactor(factor: number): void {
-    this.pointHoverScaleFactor = factor;
   }
 
   /**
@@ -504,14 +498,7 @@ export class LabelLayer {
   getHoveredPointIndex(): number | null {
     return this.hoveredPointIndex;
   }
-
-  /**
-   * Get the point hover scale factor
-   */
-  getPointHoverScaleFactor(): number {
-    return this.pointHoverScaleFactor;
-  }
-
+  
   /**
    * Destroy resources
    */
