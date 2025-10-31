@@ -30,6 +30,7 @@ export class ScatterPlot {
       pointSizeLambda: options.pointSizeLambda,
       pointColorLambda: options.pointColorLambda,
       preferPointColumn: options.preferPointColumn,
+      whereConditions: options.whereConditions,
     });
 
     this.gpuLayer = new GpuLayer({
@@ -108,15 +109,25 @@ export class ScatterPlot {
    * Update plot data and re-render
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
+    // Track if we need to re-query data
+    let needsDataUpdate = false;
+
     if (options.pointSizeLambda !== undefined ||
         options.pointColorLambda !== undefined ||
-        options.visiblePointLimit !== undefined) {
+        options.visiblePointLimit !== undefined ||
+        options.whereConditions !== undefined) {
       this.dataLayer.updateOptions({
         pointSizeLambda: options.pointSizeLambda,
         pointColorLambda: options.pointColorLambda,
         visiblePointLimit: options.visiblePointLimit,
         preferPointColumn: options.preferPointColumn,
+        whereConditions: options.whereConditions,
       });
+
+      // WHERE conditions require re-querying data
+      if (options.whereConditions !== undefined) {
+        needsDataUpdate = true;
+      }
     }
 
     if (options.backgroundColor !== undefined) {
@@ -157,7 +168,12 @@ export class ScatterPlot {
       this.labelLayer.setHoverScaleFactor(options.hoverScaleFactor);
     }
 
-    this.render();
+    // Trigger data update if WHERE conditions changed
+    if (needsDataUpdate) {
+      this.scheduleDataUpdate();
+    } else {
+      this.render();
+    }
   }
 
   /**

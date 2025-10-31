@@ -1,5 +1,5 @@
 import { createParquetReader, ParquetData, ParquetReader } from '../repository.js';
-import type { ColorRGBA, PointSizeLambda, PointColorLambda, Point } from '../types.js';
+import type { ColorRGBA, PointSizeLambda, PointColorLambda, Point, WhereCondition } from '../types.js';
 import * as sql from 'sql-bricks';
 
 export interface DataLayerOptions {
@@ -7,6 +7,7 @@ export interface DataLayerOptions {
   pointSizeLambda?: PointSizeLambda;
   pointColorLambda?: PointColorLambda;
   preferPointColumn?: string;
+  whereConditions?: WhereCondition[];
 }
 
 export interface VisibleBounds {
@@ -37,6 +38,7 @@ export class DataLayer {
   private pointSizeLambda: PointSizeLambda = ((p, columns) => 3);
   private pointColorLambda: PointColorLambda = ((p, columns) => ({ r: 0.3, g: 0.3, b: 0.8, a: 0.3 }));
   private preferPointColumn: string | null = null;
+  private whereConditions: WhereCondition[] = [];
 
   // Spatial query optimization
   private readonly VIEWPORT_MARGIN = 0.5; // 50% extra on each side
@@ -58,6 +60,7 @@ export class DataLayer {
     this.pointSizeLambda = options.pointSizeLambda ?? this.pointSizeLambda;
     this.pointColorLambda = options.pointColorLambda ?? this.pointColorLambda;
     this.preferPointColumn = options.preferPointColumn ?? null;
+    this.whereConditions = options.whereConditions ?? [];
   }
 
   /**
@@ -71,7 +74,45 @@ export class DataLayer {
     return await this.loadInitialData(aspectRatio);
   }
 
+  /**
+   * Build WHERE clause from a single condition
+   */
+  private buildWhereClause(condition: WhereCondition): string {
+    if (condition.type === 'numeric') {
+      const column = condition.column;
+      const value = condition.value;
+
+      switch (condition.operator) {
+        case '>=':
+          return `${column} >= ${value}`;
+        case '>':
+          return `${column} > ${value}`;
+        case '<=':
+          return `${column} <= ${value}`;
+        case '<':
+          return `${column} < ${value}`;
+      }
+    } else {
+      // String filter
+      const column = condition.column;
+      // Escape single quotes in the value
+      const escapedValue = condition.value.replace(/'/g, "''");
+
+      switch (condition.operator) {
+        case 'equals':
+          return `${column} = '${escapedValue}'`;
+        case 'contains':
+          return `${column} LIKE '%${escapedValue}%'`;
+        case 'startsWith':
+          return `${column} LIKE '${escapedValue}%'`;
+        case 'endsWith':
+          return `${column} LIKE '%${escapedValue}'`;
+      }
+    }
+  }
+
   private async runQuery(bounds: VisibleBounds): Promise<ParquetData | undefined> {
+    // processing in lambda expression is maybe faster
     const data = await this.repository?.query({
       toString: () => {
         let query = sql
@@ -81,6 +122,12 @@ export class DataLayer {
             sql.between('x', bounds.minX, bounds.maxX),
             sql.between('y', bounds.minY, bounds.maxY)
           );
+
+        // Apply custom WHERE conditions (all combined with AND)
+        for (const condition of this.whereConditions) {
+          const whereClause = this.buildWhereClause(condition);
+          query = query.where(whereClause);
+        }
 
         if (this.preferPointColumn != null) {
           // Use raw SQL for DuckDB-specific hash function and ORDER BY
@@ -277,6 +324,9 @@ export class DataLayer {
     }
     if (options.preferPointColumn !== undefined) {
       this.preferPointColumn = options.preferPointColumn;
+    }
+    if (options.whereConditions !== undefined) {
+      this.whereConditions = options.whereConditions;
     }
   }
 

@@ -8,6 +8,11 @@ export type {
   ColorRGBA,
   ScatterPlotOptions,
   Label,
+  WhereCondition,
+  NumericFilter,
+  StringFilter,
+  NumericOperator,
+  StringOperator,
 } from './types.js';
 
 export { diagnoseWebGPU, printDiagnostics } from './diagnostics.js';

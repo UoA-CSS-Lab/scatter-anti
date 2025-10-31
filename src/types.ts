@@ -43,6 +43,35 @@ export interface Label {
   properties?: Record<string, any>;
 }
 
+/**
+ * WHERE condition filters for data queries
+ */
+
+/** Numeric comparison operators */
+export type NumericOperator = '>=' | '>' | '<=' | '<';
+
+/** String comparison operators */
+export type StringOperator = 'contains' | 'equals' | 'startsWith' | 'endsWith';
+
+/** Numeric filter condition */
+export interface NumericFilter {
+  type: 'numeric';
+  column: string;
+  operator: NumericOperator;
+  value: number;
+}
+
+/** String filter condition */
+export interface StringFilter {
+  type: 'string';
+  column: string;
+  operator: StringOperator;
+  value: string;
+}
+
+/** Union type for all WHERE conditions */
+export type WhereCondition = NumericFilter | StringFilter;
+
 export interface ScatterPlotOptions {
   /** Canvas element to render to */
   canvas: HTMLCanvasElement;
@@ -60,6 +89,9 @@ export interface ScatterPlotOptions {
   pointColorLambda?: PointColorLambda;
 
   preferPointColumn?: string;
+
+  /** WHERE conditions to filter data (AND only) */
+  whereConditions?: WhereCondition[];
 
   /** URL to fetch label GeoJSON data from (auto-loads during initialization) */
   labelUrl?: string;
