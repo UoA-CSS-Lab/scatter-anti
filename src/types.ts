@@ -110,4 +110,7 @@ export interface ScatterPlotOptions {
 
   /** Scale factor for hovered points (default: 1.3) */
   hoverScaleFactor?: number;
+
+  /** Font size for labels in pixels (default: 12) */
+  labelFontSize?: number;
 }

@@ -40,6 +40,7 @@ export class ScatterPlot {
 
     this.labelLayer = new LabelLayer({
       canvas: options.canvas,
+      labelFontSize: options.labelFontSize,
       filterLambda: options.labelFilterLambda,
       onLabelClick: options.onLabelClick,
       onPointHover: (point, index) => this.handlePointHover(point, index, options.onPointHover),
@@ -166,6 +167,10 @@ export class ScatterPlot {
 
     if (options.hoverScaleFactor !== undefined) {
       this.labelLayer.setHoverScaleFactor(options.hoverScaleFactor);
+    }
+
+    if (options.labelFontSize !== undefined) {
+      this.labelLayer.setLabelFontSize(options.labelFontSize);
     }
 
     // Trigger data update if WHERE conditions changed

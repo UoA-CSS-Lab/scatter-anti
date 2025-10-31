@@ -4,6 +4,7 @@ import type { DataLayer } from './data-layer.js';
 export interface LabelLayerOptions {
   canvas: HTMLCanvasElement;
   minLabelDistance?: number;
+  labelFontSize?: number;
   filterLambda?: LabelFilterLambda;
   onLabelClick?: (label: Label) => void;
   onPointHover?: PointHoverCallback;
@@ -26,6 +27,7 @@ export class LabelLayer {
   private labelContext: CanvasRenderingContext2D | null = null;
   private labels: Label[] = [];
   private minLabelDistance: number = 40; // Minimum distance between labels in pixels
+  private labelFontSize: number = 12; // Label font size in pixels
   private filterLambda?: LabelFilterLambda;
 
   // View transformation state (read from GPU layer)
@@ -52,6 +54,7 @@ export class LabelLayer {
   constructor(options: LabelLayerOptions) {
     this.canvas = options.canvas;
     this.minLabelDistance = options.minLabelDistance ?? this.minLabelDistance;
+    this.labelFontSize = options.labelFontSize ?? this.labelFontSize;
     this.labels = [];
     this.filterLambda = options.filterLambda;
     this.onLabelClick = options.onLabelClick;
@@ -134,8 +137,7 @@ export class LabelLayer {
     }
 
     // Configure text rendering
-    const baseFontSize = 12;
-    const fontSize = baseFontSize; // Fixed size, not affected by zoom
+    const fontSize = this.labelFontSize; // Use configurable font size
     this.labelContext.fillStyle = 'white';
     this.labelContext.strokeStyle = 'black';
     this.labelContext.lineWidth = 2;
@@ -175,11 +177,13 @@ export class LabelLayer {
           screenY >= 0 && screenY <= this.labelCanvas.height) {
 
         // Check if this label is too close to any already rendered label
+        // Scale collision distance based on font size (baseline: 12px font = 40px distance)
+        const effectiveMinDistance = this.minLabelDistance * (this.labelFontSize / 12);
         const tooClose = renderedPositions.some(pos => {
           const dx = pos.x - screenX;
           const dy = pos.y - screenY;
           const distance = Math.sqrt(dx * dx + dy * dy);
-          return distance < this.minLabelDistance;
+          return distance < effectiveMinDistance;
         });
 
         if (!tooClose) {
@@ -375,6 +379,34 @@ export class LabelLayer {
       }
     });
 
+    // Forward wheel events to WebGPU canvas to allow zoom even when hovering over labels
+    this.labelCanvas.addEventListener('wheel', (e: WheelEvent) => {
+      // Re-dispatch the event to the WebGPU canvas
+      const newEvent = new WheelEvent('wheel', e);
+      this.canvas.dispatchEvent(newEvent);
+    }, { passive: false });
+
+    // Forward mouse events to WebGPU canvas to allow pan even when hovering over labels
+    this.labelCanvas.addEventListener('mousedown', (e: MouseEvent) => {
+      const newEvent = new MouseEvent('mousedown', e);
+      this.canvas.dispatchEvent(newEvent);
+    });
+
+    this.labelCanvas.addEventListener('mousemove', (e: MouseEvent) => {
+      const newEvent = new MouseEvent('mousemove', e);
+      this.canvas.dispatchEvent(newEvent);
+    });
+
+    this.labelCanvas.addEventListener('mouseup', (e: MouseEvent) => {
+      const newEvent = new MouseEvent('mouseup', e);
+      this.canvas.dispatchEvent(newEvent);
+    });
+
+    this.labelCanvas.addEventListener('mouseleave', (e: MouseEvent) => {
+      const newEvent = new MouseEvent('mouseleave', e);
+      this.canvas.dispatchEvent(newEvent);
+    });
+
     // Mouse leave parent - reset hover state
     parent.addEventListener('mouseleave', () => {
       this.hoveredLabel = null;
@@ -457,6 +489,13 @@ export class LabelLayer {
    */
   setHoverScaleFactor(factor: number): void {
     this.pointHoverScaleFactor = factor;
+  }
+
+  /**
+   * Set label font size
+   */
+  setLabelFontSize(size: number): void {
+    this.labelFontSize = size;
   }
 
   /**

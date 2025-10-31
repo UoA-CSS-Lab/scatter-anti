@@ -344,6 +344,14 @@
       <h2>Label Options</h2>
 
       <div class="control-row">
+        <label style="flex: 1;">
+          Font Size:
+          <input type="range" id="labelFontSize" min="8" max="32" value="12" step="1">
+          <span class="value-display" id="labelFontSizeValue">12px</span>
+        </label>
+      </div>
+
+      <div class="control-row">
         <button id="showAllLabels" class="secondary" style="flex: 1;">Show All Labels</button>
       </div>
     </div>
@@ -372,6 +380,8 @@
 
     // Label controls
     const showAllLabelsBtn = document.getElementById('showAllLabels');
+    const labelFontSizeSlider = document.getElementById('labelFontSize');
+    const labelFontSizeValue = document.getElementById('labelFontSizeValue');
 
     // Hover outline controls
     const hoverOutlineEnabled = document.getElementById('hoverOutlineEnabled');
@@ -774,6 +784,14 @@
 
       // ===== LABEL CONTROLS =====
 
+      labelFontSizeSlider.addEventListener('input', (e) => {
+        const value = parseInt(e.target.value);
+        labelFontSizeValue.textContent = `${value}px`;
+        scatterPlot.update({
+          labelFontSize: value
+        });
+      });
+
       showAllLabelsBtn.addEventListener('click', () => {
         selectedLabelText = null;
 
@@ -823,6 +841,7 @@
       hoverOutlineWidth.disabled = true;
 
       // Label controls
+      labelFontSizeSlider.disabled = true;
       showAllLabelsBtn.disabled = true;
     }
   </script>
