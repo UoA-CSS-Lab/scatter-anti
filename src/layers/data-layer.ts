@@ -111,7 +111,7 @@ export class DataLayer {
     }
   }
 
-  private async runQuery(bounds: VisibleBounds): Promise<ParquetData | undefined> {
+  async runQuery(bounds: VisibleBounds): Promise<ParquetData | undefined> {
     // processing in lambda expression is maybe faster
     const data = await this.repository?.query({
       toString: () => {

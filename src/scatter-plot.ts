@@ -1,8 +1,9 @@
-import type {ScatterPlotOptions} from './types.js';
+import type {Label, ScatterPlotOptions} from './types.js';
 import { DataLayer } from './layers/data-layer.js';
 import { GpuLayer } from './layers/gpu-layer.js';
 import { LabelLayer } from './layers/label-layer.js';
 import type { ProcessedData } from './layers/data-layer.js';
+import { ParquetData } from './repository.js';
 
 /**
  * Main ScatterPlot class for rendering scatter plots using WebGPU
@@ -323,6 +324,14 @@ export class ScatterPlot {
     if (userCallback) {
       userCallback(point, index);
     }
+  }
+
+  async runQuery(query: any): Promise<ParquetData | undefined> {
+    return await this.dataLayer.runQuery(query);
+  }
+
+  getLabels(): Label[] {
+    return this.labelLayer.getLabels();
   }
 
   /**

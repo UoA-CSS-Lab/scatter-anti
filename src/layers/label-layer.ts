@@ -491,7 +491,11 @@ export class LabelLayer {
   getHoveredPointIndex(): number | null {
     return this.hoveredPointIndex;
   }
-  
+ 
+  getLabels(): Label[] {
+    return this.labels;
+  }
+
   /**
    * Destroy resources
    */
