@@ -150,10 +150,9 @@ export class LabelLayer {
     // Render each label with density-based filtering
     for (const label of this.labels) {
       // Apply filterLambda first (before viewport/collision checks)
+      let passedFilter = true;
       if (this.filterLambda && label.properties) {
-        if (!this.filterLambda(label.properties)) {
-          continue; // Skip this label if filterLambda returns false
-        }
+        passedFilter = this.filterLambda(label.properties);
       }
 
       // Transform label position using view matrix
@@ -198,6 +197,17 @@ export class LabelLayer {
           const textMetrics = this.labelContext.measureText(label.text);
           const textWidth = textMetrics.width;
           const textHeight = scaledFontSize; // Approximate height
+
+          // Apply styling based on filter result
+          if (passedFilter) {
+            // Active labels: white with black outline
+            this.labelContext.fillStyle = 'white';
+            this.labelContext.strokeStyle = 'black';
+          } else {
+            // Filtered labels: gray and semi-transparent
+            this.labelContext.fillStyle = 'rgba(128, 128, 128, 0.5)';
+            this.labelContext.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+          }
 
           // Draw text with outline for better visibility
           this.labelContext.strokeText(label.text, screenX, screenY);
