@@ -110,9 +110,6 @@ export class ScatterPlot {
    * Update plot data and re-render
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
-    // Track if we need to re-query data
-    let needsDataUpdate = false;
-
     // Update data layer
     if (options.data !== undefined) {
       this.dataLayer.updateOptions({
@@ -122,11 +119,6 @@ export class ScatterPlot {
         preferPointColumn: options.data.preferPointColumn,
         whereConditions: options.data.whereConditions,
       });
-
-      // WHERE conditions require re-querying data
-      if (options.data.whereConditions !== undefined) {
-        needsDataUpdate = true;
-      }
     }
 
     // Update GPU layer
@@ -168,12 +160,7 @@ export class ScatterPlot {
       });
     }
 
-    // Trigger data update if WHERE conditions changed
-    if (needsDataUpdate) {
-      this.scheduleDataUpdate();
-    } else {
-      this.render();
-    }
+    this.scheduleDataUpdate();
   }
 
   /**
