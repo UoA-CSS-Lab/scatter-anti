@@ -200,9 +200,16 @@ export class LabelLayer {
 
           // Apply styling based on filter result
           if (passedFilter) {
-            // Active labels: white with black outline
-            this.labelContext.fillStyle = 'white';
-            this.labelContext.strokeStyle = 'black';
+            // Check if label has custom color
+            if (label.properties?.color && Array.isArray(label.properties.color) && label.properties.color.length === 3) {
+              const [r, g, b] = label.properties.color;
+              this.labelContext.fillStyle = `rgb(${r}, ${g}, ${b})`;
+              this.labelContext.strokeStyle = 'black';
+            } else {
+              // Active labels: white with black outline
+              this.labelContext.fillStyle = 'white';
+              this.labelContext.strokeStyle = 'black';
+            }
           } else {
             // Filtered labels: gray and semi-transparent
             this.labelContext.fillStyle = 'rgba(128, 128, 128, 0.5)';
