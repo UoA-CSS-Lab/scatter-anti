@@ -63,7 +63,9 @@ export class LabelLayer {
     this.hoverOutlineOptions = {
       enabled: options.hoverOutlineOptions?.enabled ?? true,
       color: options.hoverOutlineOptions?.color ?? 'white',
-      width: options.hoverOutlineOptions?.width ?? 2
+      width: options.hoverOutlineOptions?.width ?? 2,
+      minimumHoverSize: options.hoverOutlineOptions?.minimumHoverSize ?? 10,
+      outlinedPointAddition: options.hoverOutlineOptions?.outlinedPointAddition ?? 3,
     };
   }
 
