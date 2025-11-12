@@ -1,42 +1,51 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo } from 'react';
 
-interface TooltipData {
-  x: string;
-  y: string;
-  color: string;
-  screenX: number;
-  screenY: number;
+interface PointTooltipProps {
+  data: {
+    row: any[];
+    columns: string[];
+  };
+  mousePosition: {
+    x: number;
+    y: number;
+  };
 }
 
-export function PointTooltip() {
-  const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+export function PointTooltip({ data, mousePosition }: PointTooltipProps) {
+  // Convert row array to object for better JSON display
+  const pointData = useMemo(() => {
+    const obj: Record<string, any> = {};
+    data.columns.forEach((col, idx) => {
+      obj[col] = data.row[idx];
+    });
+    return obj;
+  }, [data]);
 
-  // This will be managed by the parent component or context
-  // For now, we'll just render if data is available
-  if (!tooltip) return null;
+  // Custom JSON stringifier that handles BigInt
+  const jsonString = useMemo(() => {
+    return JSON.stringify(pointData, (key, value) => {
+      // Convert BigInt to string with "n" suffix to indicate it's a BigInt
+      if (typeof value === 'bigint') {
+        return value.toString() + 'n';
+      }
+      return value;
+    }, 2);
+  }, [pointData]);
 
   return (
     <div
-      className="fixed bg-zinc-800/95 backdrop-blur-md px-4 py-2.5 rounded z-[101] text-xs pointer-events-none border-2 border-blue-500"
+      className="fixed bg-zinc-900/95 backdrop-blur-md px-4 py-3 rounded-lg z-[101] text-xs pointer-events-none border border-blue-500/50 shadow-xl max-w-md"
       style={{
-        left: tooltip.screenX + 15,
-        top: tooltip.screenY + 15,
+        left: mousePosition.x + 15,
+        top: mousePosition.y + 15,
       }}
     >
-      <div className="text-white font-semibold mb-1">Point Hovered</div>
-      <div className="text-white space-y-0.5">
-        <div>
-          <strong>X:</strong> {tooltip.x}
-        </div>
-        <div>
-          <strong>Y:</strong> {tooltip.y}
-        </div>
-        <div>
-          <strong>Color:</strong> {tooltip.color}
-        </div>
-      </div>
+      <div className="text-blue-400 font-semibold mb-2 text-sm">Point Data</div>
+      <pre className="text-gray-300 font-mono text-xs overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-words">
+        {jsonString}
+      </pre>
     </div>
   );
 }

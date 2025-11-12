@@ -1,4 +1,4 @@
-import type { Label, LabelFilterLambda, Point, PointHoverCallback, HoverOutlineOptions } from '../types.js';
+import type { Label, LabelFilterLambda, PointHoverCallback, HoverOutlineOptions } from '../types.js';
 import type { DataLayer } from './data-layer.js';
 
 export interface LabelLayerOptions {
@@ -46,8 +46,7 @@ export class LabelLayer {
 
   // Point hover state
   private onPointHover?: PointHoverCallback;
-  private hoveredPoint: Point | null = null;
-  private hoveredPointIndex: number | null = null;
+  private hoveredPoint: { row: any[]; columns: string[] } | null = null;
   private hoverOutlineOptions: HoverOutlineOptions;
   private dataLayer: DataLayer | null = null;
 
@@ -247,7 +246,7 @@ export class LabelLayer {
    * Render outline around hovered point
    */
   private renderPointOutline(): void {
-    if (!this.labelContext || !this.labelCanvas || !this.hoveredPoint) {
+    if (!this.labelContext || !this.labelCanvas || !this.hoveredPoint || !this.dataLayer) {
       return;
     }
 
@@ -255,9 +254,17 @@ export class LabelLayer {
       return;
     }
 
-    // Transform point position to screen coordinates
-    const worldX = this.hoveredPoint.x;
-    const worldY = this.hoveredPoint.y;
+    // Extract x and y from row data
+    const xIndex = this.hoveredPoint.columns.indexOf('x');
+    const yIndex = this.hoveredPoint.columns.indexOf('y');
+
+    if (xIndex === -1 || yIndex === -1) {
+      console.warn('x or y column not found in hovered point data');
+      return;
+    }
+
+    const worldX = this.hoveredPoint.row[xIndex];
+    const worldY = this.hoveredPoint.row[yIndex];
 
     const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
 
@@ -269,9 +276,9 @@ export class LabelLayer {
     const screenX = (clipX + 1) * 0.5 * this.labelCanvas.width;
     const screenY = (1 - clipY) * 0.5 * this.labelCanvas.height; // Flip Y axis
 
-    // Calculate the point radius in screen space
+    // Calculate the point radius in screen space using data layer helper
     // Points are scaled by zoom^0.3 in the shader
-    const baseSize = this.hoveredPoint.size ?? 3;
+    const baseSize = this.dataLayer.getPointSize(this.hoveredPoint.row, this.hoveredPoint.columns);
     const zoomScaledSize = Math.max(baseSize * Math.pow(this.zoom, 0.3) + (this.hoverOutlineOptions.outlinedPointAddition ?? 3), this.hoverOutlineOptions.minimumHoverSize ?? 10);
 
     // Convert to screen pixels (this is an approximation)
@@ -281,8 +288,8 @@ export class LabelLayer {
     this.labelContext.beginPath();
     this.labelContext.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
 
-    // Fill with point's color
-    const color = this.hoveredPoint.color;
+    // Fill with point's color using data layer helper
+    const color = this.dataLayer.getPointColor(this.hoveredPoint.row, this.hoveredPoint.columns);
     this.labelContext.fillStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${Math.round(color.a * 255)})`;
     this.labelContext.fill();
 
@@ -331,7 +338,7 @@ export class LabelLayer {
     if (!parent) return;
 
     // Mouse move for hover effect - listen on parent to catch all mouse movement
-    parent.addEventListener('mousemove', (e: MouseEvent) => {
+    parent.addEventListener('mousemove', async (e: MouseEvent) => {
       if (!this.labelCanvas) return;
 
       const rect = this.labelCanvas.getBoundingClientRect();
@@ -341,10 +348,10 @@ export class LabelLayer {
       const labelAtPosition = this.getLabelAtPosition(x, y);
 
       // Check for point hover only if no label is hovered
-      let pointHit: { point: Point; index: number } | null = null;
+      let pointHit: { row: any[]; columns: string[] } | null = null;
       if (!labelAtPosition && this.dataLayer) {
         const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
-        pointHit = this.dataLayer.findNearestPoint(
+        pointHit = await this.dataLayer.findNearestPoint(
           x, y,
           this.labelCanvas.width,
           this.labelCanvas.height,
@@ -374,15 +381,12 @@ export class LabelLayer {
       }
 
       // Update point hover state
-      const newHoveredPoint = pointHit?.point ?? null;
-      const newHoveredIndex = pointHit?.index ?? null;
-      if (newHoveredPoint !== this.hoveredPoint || newHoveredIndex !== this.hoveredPointIndex) {
-        this.hoveredPoint = newHoveredPoint;
-        this.hoveredPointIndex = newHoveredIndex;
+      if (pointHit !== this.hoveredPoint) {
+        this.hoveredPoint = pointHit;
 
         // Fire callback
         if (this.onPointHover) {
-          this.onPointHover(this.hoveredPoint, this.hoveredPointIndex);
+          this.onPointHover(this.hoveredPoint);
         }
 
         // Re-render to show point outline
@@ -436,11 +440,10 @@ export class LabelLayer {
     parent.addEventListener('mouseleave', () => {
       this.hoveredLabel = null;
       this.hoveredPoint = null;
-      this.hoveredPointIndex = null;
 
       // Fire callback for point unhover
       if (this.onPointHover) {
-        this.onPointHover(null, null);
+        this.onPointHover(null);
       }
 
       if (this.labelCanvas) {
@@ -504,13 +507,6 @@ export class LabelLayer {
     }
   }
 
-  /**
-   * Get the currently hovered point index (for GPU layer to scale)
-   */
-  getHoveredPointIndex(): number | null {
-    return this.hoveredPointIndex;
-  }
- 
   getLabels(): Label[] {
     return this.labels;
   }

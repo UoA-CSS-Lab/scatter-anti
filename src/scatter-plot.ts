@@ -44,7 +44,7 @@ export class ScatterPlot {
       labelFontSize: options.labels?.fontSize,
       filterLambda: options.labels?.filterLambda,
       onLabelClick: options.labels?.onClick,
-      onPointHover: (point, index) => this.handlePointHover(point, index, options.interaction?.onPointHover),
+      onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
       hoverOutlineOptions: options.labels?.hoverOutlineOptions,
       dataLayer: this.dataLayer,
     });
@@ -156,7 +156,7 @@ export class ScatterPlot {
     // Update interaction callbacks
     if (options.interaction !== undefined) {
       this.labelLayer.updateOptions({
-        onPointHover: (point, index) => this.handlePointHover(point, index, options.interaction?.onPointHover),
+        onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
       });
     }
 
@@ -306,10 +306,10 @@ export class ScatterPlot {
   /**
    * Handle point hover events from label layer
    */
-  private handlePointHover(point: any, index: number | null, userCallback?: any): void {
+  private handlePointHover(data: {row: any[], columns: string[]} | null, userCallback?: any): void {
     // Call user's callback if provided
     if (userCallback) {
-      userCallback(point, index);
+      userCallback(data);
     }
   }
 
