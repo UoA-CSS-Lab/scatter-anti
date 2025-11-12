@@ -15,13 +15,13 @@ import { ParquetData } from './repository.js';
  */
 export class ScatterPlot {
   // Three distinct layers
-  private dataLayer: DataLayer;
+  private readonly dataLayer: DataLayer;
   private gpuLayer: GpuLayer;
   private labelLayer: LabelLayer;
 
   // Configuration
-  private dataUrl: string;
-  private labelUrl?: string;
+  private readonly dataUrl: string;
+  private readonly labelUrl?: string;
 
   constructor(options: ScatterPlotOptions) {
 
