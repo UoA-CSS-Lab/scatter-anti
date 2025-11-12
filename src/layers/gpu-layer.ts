@@ -18,7 +18,7 @@ export interface GpuLayerOptions {
  */
 export class GpuLayer {
   private context: WebGPUContext;
-  private canvas: HTMLCanvasElement;
+  private readonly canvas: HTMLCanvasElement;
   private pipeline: GPURenderPipeline | null = null;
   private quadVertexBuffer: GPUBuffer | null = null; // Quad vertices (stepMode: 'vertex')
   private instanceBuffer: GPUBuffer | null = null; // Instance data: position + color (stepMode: 'instance')

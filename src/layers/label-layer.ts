@@ -27,7 +27,7 @@ export class LabelLayer {
   private labelCanvas: HTMLCanvasElement | null = null;
   private labelContext: CanvasRenderingContext2D | null = null;
   private labels: Label[] = [];
-  private minLabelDistance: number = 40; // Minimum distance between labels in pixels
+  private readonly minLabelDistance: number = 40; // Minimum distance between labels in pixels
   private labelFontSize: number = 12; // Label font size in pixels
   private filterLambda?: LabelFilterLambda;
 
@@ -48,7 +48,7 @@ export class LabelLayer {
   private onPointHover?: PointHoverCallback;
   private hoveredPoint: { row: any[]; columns: string[] } | null = null;
   private hoverOutlineOptions: HoverOutlineOptions;
-  private dataLayer: DataLayer | null = null;
+  private readonly dataLayer: DataLayer | null = null;
 
   constructor(options: LabelLayerOptions) {
     this.canvas = options.canvas;

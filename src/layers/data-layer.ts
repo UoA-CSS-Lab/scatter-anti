@@ -110,7 +110,7 @@ export class DataLayer {
 
   async runQuery(bounds: VisibleBounds): Promise<ParquetData | undefined> {
     // processing in lambda expression is maybe faster
-    const data = await this.repository?.query({
+    return this.repository?.query({
       toString: () => {
         let query = sql
           .select('*')
@@ -135,7 +135,6 @@ export class DataLayer {
         return `${query.toString()} LIMIT ${this.visiblePointLimit}`;
       }
     });
-    return data;
   }
 
   /**
