@@ -1,17 +1,10 @@
 /**
  * Type definitions for scatter-anti library
  */
-export interface Point {
-  x: number;
-  y: number;
-  color: ColorRGBA;
-  size?: number; // Optional point size in pixels (falls back to global pointSize if not specified)
-}
-
 export type PointSizeLambda = (point: any[], columns: string[]) => number;
 export type PointColorLambda = (point: any[], columns: string[]) => ColorRGBA;
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
-export type PointHoverCallback = (point: Point | null, index: number | null) => void;
+export type PointHoverCallback = (data: {row: any[], columns: string[]} | null) => void;
 
 export interface ColorRGBA {
   r: number; // 0-1

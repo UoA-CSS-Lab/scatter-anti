@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ScatterPlotProvider } from './context/ScatterPlotContext';
 import { useScatterPlotInit } from './demo/hooks/useScatterPlotInit';
 import { useInteractions } from './demo/hooks/useInteractions';
@@ -18,12 +18,24 @@ import { getPointColorLambda } from './demo/utils/colorSchemes';
 
 function DemoContent() {
   const [pointHover, setPointHover] = useState<{
-    point: any;
-    screenX: number;
-    screenY: number;
+    row: any[];
+    columns: string[];
   } | null>(null);
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [selectedLabel, setSelectedLabel] = useState<any>(null);
   const selectedLabelTextRef = useRef<string | null>(null);
+
+  // Track mouse position for tooltip
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, []);
 
   // Initialize ScatterPlot
   useScatterPlotInit({
@@ -57,18 +69,8 @@ function DemoContent() {
       },
     },
     interaction: {
-      onPointHover: (point, index) => {
-        if (point) {
-          // We need to get screen coordinates from mouse position
-          // For now, we'll handle this in a separate effect
-          setPointHover({
-            point,
-            screenX: 0, // Will be updated by mouse move
-            screenY: 0,
-          });
-        } else {
-          setPointHover(null);
-        }
+      onPointHover: (data) => {
+        setPointHover(data);
       },
     },
   });
@@ -81,7 +83,7 @@ function DemoContent() {
       <ScatterCanvas />
       <StatusPanel />
       {selectedLabel && <LabelInfoPanel />}
-      {pointHover && <PointTooltip />}
+      {pointHover && <PointTooltip data={pointHover} mousePosition={mousePosition} />}
       <ViewControls />
       <PointControls />
       <HoverOutlineControls />

@@ -1,5 +1,5 @@
-import { createParquetReader, ParquetData, ParquetReader } from '../repository.js';
-import type { ColorRGBA, PointSizeLambda, PointColorLambda, Point, WhereCondition } from '../types.js';
+import {createParquetReader, ParquetData, ParquetReader} from '../repository.js';
+import type {ColorRGBA, PointColorLambda, PointSizeLambda, WhereCondition} from '../types.js';
 import * as sql from 'sql-bricks';
 
 export interface DataLayerOptions {
@@ -51,9 +51,6 @@ export class DataLayer {
   private readonly queryThrottleInterval: number = 300; // ms between queries
   private lastQueryTime: number = 0;
   private throttleTimer: number | null = null;
-
-  // Current visible data for hover detection
-  private currentVisibleData: ProcessedData | null = null;
 
   constructor(options: DataLayerOptions = {}) {
     this.visiblePointLimit = options.visiblePointLimit ?? this.visiblePointLimit;
@@ -156,9 +153,7 @@ export class DataLayer {
 
     console.log(`Initial load: ${data.rowCount} points in ${(performance.now() - startTime).toFixed(1)}ms`);
 
-    const processedData = this.processDataToGpuFormat(data);
-    this.currentVisibleData = processedData;
-    return processedData;
+    return this.processDataToGpuFormat(data);
   }
 
   /**
@@ -255,7 +250,6 @@ export class DataLayer {
 
       // Final check before applying results
       if (queryId === this.currentQueryId) {
-        this.currentVisibleData = processedData;
         callback(processedData);
       } else {
         console.log(`Query ${queryId} results discarded (current: ${this.currentQueryId})`);
@@ -331,6 +325,20 @@ export class DataLayer {
   }
 
   /**
+   * Get point color by applying color lambda to row data
+   */
+  getPointColor(row: any[], columns: string[]): ColorRGBA {
+    return this.pointColorLambda(row, columns);
+  }
+
+  /**
+   * Get point size by applying size lambda to row data
+   */
+  getPointSize(row: any[], columns: string[]): number {
+    return this.pointSizeLambda(row, columns);
+  }
+
+  /**
    * Find the nearest point to screen coordinates
    * @param screenX Mouse X in screen coordinates
    * @param screenY Mouse Y in screen coordinates
@@ -343,7 +351,7 @@ export class DataLayer {
    * @param thresholdPixels Maximum distance in pixels to consider a hit (default: 10)
    * @returns Point data and index if found, null otherwise
    */
-  findNearestPoint(
+  async findNearestPoint(
     screenX: number,
     screenY: number,
     canvasWidth: number,
@@ -353,8 +361,8 @@ export class DataLayer {
     panY: number,
     aspectRatio: number,
     thresholdPixels: number = 10
-  ): { point: Point; index: number } | null {
-    if (!this.currentVisibleData || this.currentVisibleData.rowCount === 0) {
+  ): Promise<{ row: any[]; columns: string[] } | null> {
+    if (!this.repository) {
       return null;
     }
 
@@ -372,45 +380,49 @@ export class DataLayer {
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
     const thresholdWorld = thresholdClip * aspectRatio / zoom;
 
-    let nearestIndex = -1;
-    let nearestDistance = Infinity;
+    // Calculate visible bounds for the query
+    const bounds = this.calculateVisibleBounds(zoom, panX, panY, aspectRatio);
 
-    // Search through all visible points
-    const instanceData = this.currentVisibleData.instanceData;
-    for (let i = 0; i < this.currentVisibleData.rowCount; i++) {
-      const pointX = instanceData[i * 7 + 0];
-      const pointY = instanceData[i * 7 + 1];
+    // Build DuckDB query to find nearest point
+    try {
+      let query = sql
+        .select('*', `sqrt(pow(x - ${worldX}, 2) + pow(y - ${worldY}, 2)) as distance`)
+        .from('parquet_data')
+        .where(
+          sql.between('x', bounds.minX, bounds.maxX),
+          sql.between('y', bounds.minY, bounds.maxY),
+          sql.lte(`sqrt(pow(x - ${worldX}, 2) + pow(y - ${worldY}, 2))`, thresholdWorld)
+        );
 
-      // Calculate distance in world space
-      const dx = pointX - worldX;
-      const dy = pointY - worldY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance < nearestDistance && distance <= thresholdWorld) {
-        nearestDistance = distance;
-        nearestIndex = i;
+      // Apply custom WHERE conditions
+      for (const condition of this.whereConditions) {
+        const whereClause = this.buildWhereClause(condition);
+        query = query.where(whereClause);
       }
-    }
 
-    if (nearestIndex === -1) {
+      // Order by distance and limit to 1
+      query = query.orderBy('distance');
+
+      const data = await this.repository.query({
+        toString: () => `${query.toString()} LIMIT 1`
+      });
+
+      if (!data || data.rowCount === 0) {
+        return null;
+      }
+
+      // Extract first row
+      const row: any[] = new Array(data.columns.length);
+      for (let j = 0; j < data.columns.length; j++) {
+        const column = data.columnData.get(data.columns[j]);
+        row[j] = column?.get(0);
+      }
+
+      return { row, columns: data.columns };
+    } catch (error) {
+      console.error('Error finding nearest point:', error);
       return null;
     }
-
-    // Reconstruct Point object from instance data
-    const i = nearestIndex;
-    const point: Point = {
-      x: instanceData[i * 7 + 0],
-      y: instanceData[i * 7 + 1],
-      color: {
-        r: instanceData[i * 7 + 2],
-        g: instanceData[i * 7 + 3],
-        b: instanceData[i * 7 + 4],
-        a: instanceData[i * 7 + 5]
-      },
-      size: instanceData[i * 7 + 6]
-    };
-
-    return { point, index: nearestIndex };
   }
 
   /**
