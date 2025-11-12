@@ -77,20 +77,20 @@ export class DataLayer {
   /**
    * Build WHERE clause from a single condition
    */
-  private buildWhereClause(condition: WhereCondition): string {
+    private buildWhereClause(condition: WhereCondition): sql.WhereExpression {
     if (condition.type === 'numeric') {
       const column = condition.column;
       const value = condition.value;
 
       switch (condition.operator) {
         case '>=':
-          return `${column} >= ${value}`;
+          return sql.gte(column, value);
         case '>':
-          return `${column} > ${value}`;
+          return sql.gt(column, value);
         case '<=':
-          return `${column} <= ${value}`;
+          return sql.lte(column, value);
         case '<':
-          return `${column} < ${value}`;
+          return sql.lt(column, value);
       }
     } else {
       // String filter
@@ -100,13 +100,13 @@ export class DataLayer {
 
       switch (condition.operator) {
         case 'equals':
-          return `${column} = '${escapedValue}'`;
+          return sql.eq(column, escapedValue);
         case 'contains':
-          return `${column} LIKE '%${escapedValue}%'`;
+          return sql.like(column, `%${escapedValue}%`);
         case 'startsWith':
-          return `${column} LIKE '${escapedValue}%'`;
+          return sql.like(column, `${escapedValue}%`);
         case 'endsWith':
-          return `${column} LIKE '%${escapedValue}'`;
+          return sql.like(column, `%${escapedValue}`);
       }
     }
   }
