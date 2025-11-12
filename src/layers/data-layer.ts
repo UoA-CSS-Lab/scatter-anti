@@ -77,7 +77,7 @@ export class DataLayer {
   /**
    * Build WHERE clause from a single condition
    */
-    private buildWhereClause(condition: WhereCondition): sql.WhereExpression {
+  private buildWhereClause(condition: WhereCondition): sql.WhereExpression {
     if (condition.type === 'numeric') {
       const column = condition.column;
       const value = condition.value;
