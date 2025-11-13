@@ -191,30 +191,52 @@ export class LabelLayer {
           const scale = isHovered ? this.hoverScale : this.normalScale;
           const scaledFontSize = fontSize * scale;
 
-          // Set font with scale
-          this.labelContext.font = `${scaledFontSize}px sans-serif`;
+          // Set font with scale - use bold for better visibility
+          this.labelContext.font = `bold ${scaledFontSize}px sans-serif`;
 
           // Measure text for bounding box
           const textMetrics = this.labelContext.measureText(label.text);
           const textWidth = textMetrics.width;
           const textHeight = scaledFontSize; // Approximate height
 
+          // Draw background box for better readability
+          const padding = 4;
+          const boxX = screenX - textWidth / 2 - padding;
+          const boxY = screenY - textHeight / 2 - padding;
+          const boxWidth = textWidth + padding * 2;
+          const boxHeight = textHeight + padding * 2;
+          const borderRadius = 4;
+
           // Apply styling based on filter result
           if (passedFilter) {
+            // Draw background box for active labels
+            this.labelContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            this.labelContext.beginPath();
+            this.labelContext.roundRect(boxX, boxY, boxWidth, boxHeight, borderRadius);
+            this.labelContext.fill();
+
             // Check if label has custom color
             if (label.properties?.color && Array.isArray(label.properties.color) && label.properties.color.length === 3) {
               const [r, g, b] = label.properties.color;
               this.labelContext.fillStyle = `rgb(${r}, ${g}, ${b})`;
-              this.labelContext.strokeStyle = 'black';
+              this.labelContext.strokeStyle = 'rgba(0, 0, 0, 0.3)';
             } else {
-              // Active labels: white with black outline
+              // Active labels: bright white with subtle dark outline
               this.labelContext.fillStyle = 'white';
-              this.labelContext.strokeStyle = 'black';
+              this.labelContext.strokeStyle = 'rgba(0, 0, 0, 0.3)';
             }
+            this.labelContext.lineWidth = 3;
           } else {
-            // Filtered labels: gray and semi-transparent
-            this.labelContext.fillStyle = 'rgba(128, 128, 128, 0.5)';
-            this.labelContext.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+            // Draw background box for filtered labels
+            this.labelContext.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            this.labelContext.beginPath();
+            this.labelContext.roundRect(boxX, boxY, boxWidth, boxHeight, borderRadius);
+            this.labelContext.fill();
+
+            // Filtered labels: light gray text with dark outline for contrast
+            this.labelContext.fillStyle = 'rgba(180, 180, 180, 0.6)';
+            this.labelContext.strokeStyle = 'rgba(40, 40, 40, 0.8)';
+            this.labelContext.lineWidth = 2;
           }
 
           // Draw text with outline for better visibility
