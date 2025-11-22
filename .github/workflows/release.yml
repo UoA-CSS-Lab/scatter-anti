@@ -1,0 +1,55 @@
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: version
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - premajor
+          - prerelease
+      preid:
+        description: preid
+        type: choice
+        options:
+          - ""
+          - rc
+          - alpha
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - if: ${{ github.event.inputs.preid == '' }}
+        run: npm version ${{ github.event.inputs.version }}
+
+      - if: ${{ github.event.inputs.preid != '' }}
+        run: npm version ${{ github.event.inputs.version }} --preid ${{ github.event.inputs.preid }}
+
+      - name: git push
+        run: git push origin --tags ${{ github.ref }}:${{ github.ref }}

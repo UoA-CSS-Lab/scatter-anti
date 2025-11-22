@@ -1,4 +1,9 @@
-import type { Label, LabelFilterLambda, PointHoverCallback, HoverOutlineOptions } from '../types.js';
+import type {
+  Label,
+  LabelFilterLambda,
+  PointHoverCallback,
+  HoverOutlineOptions,
+} from '../types.js';
 import type { DataLayer } from './data-layer.js';
 
 export interface LabelLayerOptions {
@@ -11,7 +16,7 @@ export interface LabelLayerOptions {
   hoverOutlineOptions?: HoverOutlineOptions;
   dataLayer?: DataLayer;
   outlinedPointAddition?: number;
-  minimumHoverSize?: number,
+  minimumHoverSize?: number;
 }
 
 /**
@@ -38,7 +43,13 @@ export class LabelLayer {
 
   // Hover and interaction state
   private onLabelClick?: (label: Label) => void;
-  private renderedLabelBounds: Array<{label: Label, x: number, y: number, width: number, height: number}> = [];
+  private renderedLabelBounds: Array<{
+    label: Label;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }> = [];
   private hoveredLabel: Label | null = null;
   private readonly normalScale = 1.0;
   private readonly hoverScale = 1.3;
@@ -123,7 +134,6 @@ export class LabelLayer {
    */
   render(): void {
     if (!this.labelContext || !this.labelCanvas) {
-      console.log('renderLabels: No label context or canvas');
       return;
     }
 
@@ -132,7 +142,6 @@ export class LabelLayer {
     this.renderedLabelBounds = [];
 
     if (this.labels.length === 0) {
-      console.log('renderLabels: No labels to render');
       return;
     }
 
@@ -144,9 +153,9 @@ export class LabelLayer {
     this.labelContext.textAlign = 'center';
     this.labelContext.textBaseline = 'middle';
 
-    let renderedCount = 0;
-    let skippedCount = 0;
-    const renderedPositions: Array<{x: number, y: number}> = [];
+    let _renderedCount = 0;
+    let _skippedCount = 0;
+    const renderedPositions: Array<{ x: number; y: number }> = [];
 
     // Render each label with density-based filtering
     for (const label of this.labels) {
@@ -172,13 +181,16 @@ export class LabelLayer {
       const screenY = (1 - clipY) * 0.5 * this.labelCanvas.height; // Flip Y axis
 
       // Only render if within visible bounds
-      if (screenX >= 0 && screenX <= this.labelCanvas.width &&
-          screenY >= 0 && screenY <= this.labelCanvas.height) {
-
+      if (
+        screenX >= 0 &&
+        screenX <= this.labelCanvas.width &&
+        screenY >= 0 &&
+        screenY <= this.labelCanvas.height
+      ) {
         // Check if this label is too close to any already rendered label
         // Scale collision distance based on font size (baseline: 12px font = 40px distance)
         const effectiveMinDistance = this.minLabelDistance * (this.labelFontSize / 12);
-        const tooClose = renderedPositions.some(pos => {
+        const tooClose = renderedPositions.some((pos) => {
           const dx = pos.x - screenX;
           const dy = pos.y - screenY;
           const distance = Math.sqrt(dx * dx + dy * dy);
@@ -202,7 +214,11 @@ export class LabelLayer {
           // Apply styling based on filter result
           if (passedFilter) {
             // Check if label has custom color
-            if (label.properties?.color && Array.isArray(label.properties.color) && label.properties.color.length === 3) {
+            if (
+              label.properties?.color &&
+              Array.isArray(label.properties.color) &&
+              label.properties.color.length === 3
+            ) {
               const [r, g, b] = label.properties.color;
               this.labelContext.fillStyle = `rgb(${r}, ${g}, ${b})`;
               this.labelContext.strokeStyle = 'black';
@@ -227,13 +243,13 @@ export class LabelLayer {
             x: screenX - textWidth / 2,
             y: screenY - textHeight / 2,
             width: textWidth,
-            height: textHeight
+            height: textHeight,
           });
 
-          renderedPositions.push({x: screenX, y: screenY});
-          renderedCount++;
+          renderedPositions.push({ x: screenX, y: screenY });
+          _renderedCount++;
         } else {
-          skippedCount++;
+          _skippedCount++;
         }
       }
     }
@@ -259,7 +275,6 @@ export class LabelLayer {
     const yIndex = this.hoveredPoint.columns.indexOf('y');
 
     if (xIndex === -1 || yIndex === -1) {
-      console.warn('x or y column not found in hovered point data');
       return;
     }
 
@@ -279,7 +294,10 @@ export class LabelLayer {
     // Calculate the point radius in screen space using data layer helper
     // Points are scaled by zoom^0.3 in the shader
     const baseSize = this.dataLayer.getPointSize(this.hoveredPoint.row, this.hoveredPoint.columns);
-    const zoomScaledSize = Math.max(baseSize * Math.pow(this.zoom, 0.3) + (this.hoverOutlineOptions.outlinedPointAddition ?? 3), this.hoverOutlineOptions.minimumHoverSize ?? 10);
+    const zoomScaledSize = Math.max(
+      baseSize * Math.pow(this.zoom, 0.3) + (this.hoverOutlineOptions.outlinedPointAddition ?? 3),
+      this.hoverOutlineOptions.minimumHoverSize ?? 10
+    );
 
     // Convert to screen pixels (this is an approximation)
     const screenRadius = zoomScaledSize;
@@ -304,7 +322,6 @@ export class LabelLayer {
    */
   loadLabels(geojsonData: any): void {
     if (!geojsonData || !geojsonData.features) {
-      console.warn('Invalid GeoJSON data provided');
       return;
     }
 
@@ -319,13 +336,7 @@ export class LabelLayer {
     }));
 
     // Sort by count (descending)
-    this.labels = allLabels
-      .sort((a: Label, b: Label) => (b.count || 0) - (a.count || 0));
-
-    console.log(`Loaded ${this.labels.length} labels`);
-    console.log('First label:', this.labels[0]);
-    console.log('Label canvas:', this.labelCanvas);
-    console.log('Label context:', this.labelContext);
+    this.labels = allLabels.sort((a: Label, b: Label) => (b.count || 0) - (a.count || 0));
   }
 
   /**
@@ -352,7 +363,8 @@ export class LabelLayer {
       if (!labelAtPosition && this.dataLayer) {
         const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
         pointHit = await this.dataLayer.findNearestPoint(
-          x, y,
+          x,
+          y,
           this.labelCanvas.width,
           this.labelCanvas.height,
           this.zoom,
@@ -409,11 +421,15 @@ export class LabelLayer {
     });
 
     // Forward wheel events to WebGPU canvas to allow zoom even when hovering over labels
-    this.labelCanvas.addEventListener('wheel', (e: WheelEvent) => {
-      // Re-dispatch the event to the WebGPU canvas
-      const newEvent = new WheelEvent('wheel', e);
-      this.canvas.dispatchEvent(newEvent);
-    }, { passive: false });
+    this.labelCanvas.addEventListener(
+      'wheel',
+      (e: WheelEvent) => {
+        // Re-dispatch the event to the WebGPU canvas
+        const newEvent = new WheelEvent('wheel', e);
+        this.canvas.dispatchEvent(newEvent);
+      },
+      { passive: false }
+    );
 
     // Forward mouse events to WebGPU canvas to allow pan even when hovering over labels
     this.labelCanvas.addEventListener('mousedown', (e: MouseEvent) => {
@@ -460,10 +476,12 @@ export class LabelLayer {
    */
   private getLabelAtPosition(x: number, y: number): Label | null {
     for (const bound of this.renderedLabelBounds) {
-      if (x >= bound.x - this.hitPadding &&
-          x <= bound.x + bound.width + this.hitPadding &&
-          y >= bound.y - this.hitPadding &&
-          y <= bound.y + bound.height + this.hitPadding) {
+      if (
+        x >= bound.x - this.hitPadding &&
+        x <= bound.x + bound.width + this.hitPadding &&
+        y >= bound.y - this.hitPadding &&
+        y <= bound.y + bound.height + this.hitPadding
+      ) {
         return bound.label;
       }
     }
@@ -501,8 +519,11 @@ export class LabelLayer {
         enabled: options.hoverOutlineOptions.enabled ?? this.hoverOutlineOptions.enabled,
         color: options.hoverOutlineOptions.color ?? this.hoverOutlineOptions.color,
         width: options.hoverOutlineOptions.width ?? this.hoverOutlineOptions.width,
-        minimumHoverSize: options.hoverOutlineOptions.minimumHoverSize ?? this.hoverOutlineOptions.minimumHoverSize,
-        outlinedPointAddition: options.hoverOutlineOptions.outlinedPointAddition ?? this.hoverOutlineOptions.outlinedPointAddition,
+        minimumHoverSize:
+          options.hoverOutlineOptions.minimumHoverSize ?? this.hoverOutlineOptions.minimumHoverSize,
+        outlinedPointAddition:
+          options.hoverOutlineOptions.outlinedPointAddition ??
+          this.hoverOutlineOptions.outlinedPointAddition,
       };
     }
   }

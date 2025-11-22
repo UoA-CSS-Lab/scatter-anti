@@ -4,8 +4,8 @@ export function TroubleshootingGuide() {
       <h3 className="text-cyan-500 text-lg mb-3 mt-0">Troubleshooting Guide</h3>
       <ul className="text-cyan-500 text-sm space-y-2 list-disc pl-5">
         <li>
-          <strong>Chrome/Edge:</strong> Visit <code className="bg-black px-1">chrome://gpu</code>{' '}
-          to check WebGPU status
+          <strong>Chrome/Edge:</strong> Visit <code className="bg-black px-1">chrome://gpu</code> to
+          check WebGPU status
         </li>
         <li>
           <strong>Chrome/Edge:</strong> Ensure you're using version 113 or higher

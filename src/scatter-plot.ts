@@ -1,9 +1,9 @@
-import type {Label, ScatterPlotOptions} from './types.js';
+import type { Label, ScatterPlotOptions } from './types.js';
 import { DataLayer } from './layers/data-layer.js';
 import { GpuLayer } from './layers/gpu-layer.js';
 import { LabelLayer } from './layers/label-layer.js';
 import type { ProcessedData } from './layers/data-layer.js';
-import { ParquetData } from './repository.js';
+import type { ParquetData } from './repository.js';
 
 /**
  * Main ScatterPlot class for rendering scatter plots using WebGPU
@@ -24,7 +24,6 @@ export class ScatterPlot {
   private readonly labelUrl?: string;
 
   constructor(options: ScatterPlotOptions) {
-
     // Initialize the three layers
     this.dataLayer = new DataLayer({
       visiblePointLimit: options.data?.visiblePointLimit,
@@ -75,11 +74,9 @@ export class ScatterPlot {
         if (response.ok) {
           const labelData = await response.json();
           this.loadLabels(labelData);
-        } else {
-          console.warn(`Could not load labels from ${this.labelUrl}: ${response.status} ${response.statusText}`);
         }
-      } catch (error) {
-        console.warn(`Error loading labels from ${this.labelUrl}:`, error);
+      } catch {
+        // Silently ignore label loading errors in legacy API
       }
     }
   }
@@ -144,11 +141,9 @@ export class ScatterPlot {
           if (response.ok) {
             const labelData = await response.json();
             this.loadLabels(labelData);
-          } else {
-            console.warn(`Could not load labels from ${options.labels.url}: ${response.status} ${response.statusText}`);
           }
-        } catch (error) {
-          console.warn(`Error loading labels from ${options.labels.url}:`, error);
+        } catch {
+          // Silently ignore label loading errors
         }
       }
     }
@@ -294,19 +289,28 @@ export class ScatterPlot {
     const pan = this.gpuLayer.getPan();
     const aspectRatio = this.gpuLayer.getAspectRatio();
 
-    this.dataLayer.scheduleVisiblePointsUpdate(zoom, pan.x, pan.y, aspectRatio, (data: ProcessedData) => {
-      // Update GPU layer with new data
-      this.gpuLayer.updateInstanceBuffer(data);
+    this.dataLayer.scheduleVisiblePointsUpdate(
+      zoom,
+      pan.x,
+      pan.y,
+      aspectRatio,
+      (data: ProcessedData) => {
+        // Update GPU layer with new data
+        this.gpuLayer.updateInstanceBuffer(data);
 
-      // Re-render with new data
-      this.render();
-    });
+        // Re-render with new data
+        this.render();
+      }
+    );
   }
 
   /**
    * Handle point hover events from label layer
    */
-  private handlePointHover(data: {row: any[], columns: string[]} | null, userCallback?: any): void {
+  private handlePointHover(
+    data: { row: any[]; columns: string[] } | null,
+    userCallback?: any
+  ): void {
     // Call user's callback if provided
     if (userCallback) {
       userCallback(data);

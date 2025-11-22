@@ -154,10 +154,14 @@ export class GpuLayer {
     // Create quad vertex buffer (only once, shared by all instances)
     // Quad vertices: (-1,-1), (1,-1), (-1,1), (1,1)
     const quadVertices = new Float32Array([
-      -1.0, -1.0, // bottom-left
-      1.0, -1.0,  // bottom-right
-      -1.0, 1.0,  // top-left
-      1.0, 1.0,   // top-right
+      -1.0,
+      -1.0, // bottom-left
+      1.0,
+      -1.0, // bottom-right
+      -1.0,
+      1.0, // top-left
+      1.0,
+      1.0, // top-right
     ]);
 
     this.quadVertexBuffer = this.context.device.createBuffer({
@@ -217,7 +221,6 @@ export class GpuLayer {
 
     // Only reallocate buffer if visiblePointLimit has changed
     if (this.instanceBufferCapacity !== data.visiblePointLimit) {
-      console.log('recreating');
       // Keep old buffer until new one is ready
       const oldBuffer = this.instanceBuffer;
 
@@ -239,8 +242,11 @@ export class GpuLayer {
 
     // Write data to buffer (reusing existing buffer if capacity unchanged)
     if (this.instanceBuffer && this.currentInstanceData) {
-      console.log('write');
-      this.context.device.queue.writeBuffer(this.instanceBuffer, 0, this.currentInstanceData as BufferSource);
+      this.context.device.queue.writeBuffer(
+        this.instanceBuffer,
+        0,
+        this.currentInstanceData as BufferSource
+      );
     }
   }
 
@@ -281,10 +287,22 @@ export class GpuLayer {
     //                  [panX, panY, 0, 1]
 
     return new Float32Array([
-      this.zoom / aspectRatio, 0, 0, 0,
-      0, this.zoom, 0, 0,
-      0, 0, 1, 0,
-      this.panX, this.panY, 0, 1,
+      this.zoom / aspectRatio,
+      0,
+      0,
+      0,
+      0,
+      this.zoom,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      this.panX,
+      this.panY,
+      0,
+      1,
     ]);
   }
 
@@ -339,7 +357,11 @@ export class GpuLayer {
       this.applyHoverScaling();
 
       // Update GPU buffer
-      this.context.device.queue.writeBuffer(this.instanceBuffer, 0, this.currentInstanceData as BufferSource);
+      this.context.device.queue.writeBuffer(
+        this.instanceBuffer,
+        0,
+        this.currentInstanceData as BufferSource
+      );
     }
   }
 
@@ -347,8 +369,14 @@ export class GpuLayer {
    * Render the scatter plot
    */
   render(): void {
-    if (!this.context.device || !this.context.context || !this.pipeline ||
-        !this.quadVertexBuffer || !this.instanceBuffer || !this.bindGroup) {
+    if (
+      !this.context.device ||
+      !this.context.context ||
+      !this.pipeline ||
+      !this.quadVertexBuffer ||
+      !this.instanceBuffer ||
+      !this.bindGroup
+    ) {
       return;
     }
 
@@ -373,7 +401,7 @@ export class GpuLayer {
 
     renderPass.setPipeline(this.pipeline);
     renderPass.setVertexBuffer(0, this.quadVertexBuffer); // Quad vertices
-    renderPass.setVertexBuffer(1, this.instanceBuffer);   // Instance data
+    renderPass.setVertexBuffer(1, this.instanceBuffer); // Instance data
     renderPass.setIndexBuffer(this.indexBuffer!, 'uint16');
     renderPass.setBindGroup(0, this.bindGroup);
     renderPass.drawIndexed(this.indexCount, this.rowCount, 0, 0, 0);
@@ -444,14 +472,14 @@ export class GpuLayer {
     const ndcY = -((screenY / this.canvas.height) * 2 - 1); // Flip Y axis
 
     // Convert NDC to world coordinates before zoom (accounting for aspect ratio)
-    const worldXBefore = (ndcX - this.panX) * aspectRatio / this.zoom;
+    const worldXBefore = ((ndcX - this.panX) * aspectRatio) / this.zoom;
     const worldYBefore = (ndcY - this.panY) / this.zoom;
 
     // Update zoom
     this.zoom = clampedZoom;
 
     // Calculate new pan to keep the world point at the same screen position
-    this.panX = ndcX - worldXBefore * this.zoom / aspectRatio;
+    this.panX = ndcX - (worldXBefore * this.zoom) / aspectRatio;
     this.panY = ndcY - worldYBefore * this.zoom;
 
     this.updateUniforms();
