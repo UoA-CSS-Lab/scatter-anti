@@ -139,9 +139,9 @@ export class DataLayer {
 
         if (this.preferPointColumn != null) {
           // Use raw SQL for DuckDB-specific hash function and ORDER BY
-          query = query.orderBy(`${this.preferPointColumn} DESC`, 'hash(tid)');
+          query = query.orderBy(`${this.preferPointColumn} DESC`, 'hash(x + y)');
         } else {
-          query = query.orderBy('hash(tid)');
+          query = query.orderBy('hash(x + y)');
         }
         return `${query.toString()} LIMIT ${this.visiblePointLimit}`;
       },
