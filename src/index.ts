@@ -14,7 +14,7 @@ export type {
   StringOperator,
 } from './types.js';
 
-export { diagnoseWebGPU, printDiagnostics } from './diagnostics.js';
+export { diagnoseWebGPU } from './diagnostics.js';
 export type { WebGPUDiagnostics } from './diagnostics.js';
 
 /**

@@ -25,13 +25,17 @@ export function PointTooltip({ data, mousePosition }: PointTooltipProps) {
 
   // Custom JSON stringifier that handles BigInt
   const jsonString = useMemo(() => {
-    return JSON.stringify(pointData, (key, value) => {
-      // Convert BigInt to string with "n" suffix to indicate it's a BigInt
-      if (typeof value === 'bigint') {
-        return value.toString() + 'n';
-      }
-      return value;
-    }, 2);
+    return JSON.stringify(
+      pointData,
+      (key, value) => {
+        // Convert BigInt to string with "n" suffix to indicate it's a BigInt
+        if (typeof value === 'bigint') {
+          return value.toString() + 'n';
+        }
+        return value;
+      },
+      2
+    );
   }, [pointData]);
 
   return (

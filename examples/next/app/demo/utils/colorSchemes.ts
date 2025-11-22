@@ -7,9 +7,9 @@ function viridis(t: number): ColorRGBA {
   t = Math.max(0, Math.min(1, t));
 
   // Viridis colormap approximation using piecewise linear interpolation
-  const r = Math.pow(0.282 + 0.277 * t + 0.390 * Math.pow(t, 2), 1 / 2.2);
+  const r = Math.pow(0.282 + 0.277 * t + 0.39 * Math.pow(t, 2), 1 / 2.2);
   const g = Math.pow(0.004 + 0.536 * t - 0.143 * Math.pow(t, 2), 1 / 2.2);
-  const b = Math.pow(0.333 + 0.455 * t - 1.010 * Math.pow(t, 2), 1 / 2.2);
+  const b = Math.pow(0.333 + 0.455 * t - 1.01 * Math.pow(t, 2), 1 / 2.2);
 
   return { r, g, b, a: 0.8 };
 }
@@ -17,7 +17,7 @@ function viridis(t: number): ColorRGBA {
 // Helper: HSL to RGB conversion
 function hslToRgb(h: number, s: number, l: number): ColorRGBA {
   const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;
 
   let r: number, g: number, b: number;
@@ -58,7 +58,10 @@ function hslToRgb(h: number, s: number, l: number): ColorRGBA {
 export type ColorScheme = 'data' | 'rainbow' | 'heatmap' | 'blue';
 
 // Point color lambda generators
-export function getPointColorLambda(scheme: ColorScheme, scatterPlot: ScatterPlot | null): PointColorLambda {
+export function getPointColorLambda(
+  scheme: ColorScheme,
+  scatterPlot: ScatterPlot | null
+): PointColorLambda {
   switch (scheme) {
     case 'data':
       // Use favorite_count with viridis colormap
@@ -71,7 +74,9 @@ export function getPointColorLambda(scheme: ColorScheme, scatterPlot: ScatterPlo
         const rawValue = point[favoriteCountIdx];
         const label = scatterPlot?.getLabels().find((l) => l.cluster == rawValue);
         const color = label?.properties?.color;
-        return color ? { r: color[0] / 255, g: color[1] / 255, b: color[2] / 255, a: 0.25 } : { r: 0.5, g: 0.5, b: 0.8, a: 0 };
+        return color
+          ? { r: color[0] / 255, g: color[1] / 255, b: color[2] / 255, a: 0.25 }
+          : { r: 0.5, g: 0.5, b: 0.8, a: 0 };
       };
 
     case 'rainbow':
@@ -79,8 +84,7 @@ export function getPointColorLambda(scheme: ColorScheme, scatterPlot: ScatterPlo
       return (point, columns) => {
         const xIdx = columns.indexOf('x');
         const yIdx = columns.indexOf('y');
-        if (xIdx === -1 || yIdx === -1)
-          return { r: 0.5, g: 0.5, b: 0.8, a: 0.7 };
+        if (xIdx === -1 || yIdx === -1) return { r: 0.5, g: 0.5, b: 0.8, a: 0.7 };
 
         // Convert BigInt to number if needed (x/y are likely floats but be safe)
         const rawX = point[xIdx];
@@ -101,8 +105,7 @@ export function getPointColorLambda(scheme: ColorScheme, scatterPlot: ScatterPlo
 
         // Convert BigInt to number if needed
         const rawValue = point[favoriteCountIdx];
-        const favoriteCount =
-          typeof rawValue === 'bigint' ? Number(rawValue) : rawValue || 0;
+        const favoriteCount = typeof rawValue === 'bigint' ? Number(rawValue) : rawValue || 0;
 
         const t = Math.min(1, Math.log(favoriteCount + 1) / Math.log(1000));
 

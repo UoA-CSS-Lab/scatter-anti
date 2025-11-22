@@ -358,7 +358,7 @@
   </div>
 
   <script type="module">
-    import { ScatterPlot, isWebGPUSupported, printDiagnostics } from '../../dist/index.js';
+    import { ScatterPlot, isWebGPUSupported } from '../../dist/index.js';
 
     const canvas = document.getElementById('canvas');
     const statusEl = document.getElementById('status');
@@ -394,7 +394,6 @@
 
     // Run diagnostics first
     console.log('Running WebGPU diagnostics...');
-    await printDiagnostics();
 
     // Check WebGPU support
     if (!isWebGPUSupported()) {

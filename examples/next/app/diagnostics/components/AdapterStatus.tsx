@@ -32,9 +32,7 @@ export function AdapterStatus({ diagnostics }: AdapterStatusProps) {
           <div className="p-3 my-3 rounded bg-green-950 text-green-500 border border-green-500 font-bold">
             ✓ GPU Adapter successfully obtained
           </div>
-          <p className="text-green-500 text-sm">
-            WebGPU is fully functional on your system!
-          </p>
+          <p className="text-green-500 text-sm">WebGPU is fully functional on your system!</p>
         </div>
       ) : diagnostics.supported ? (
         <div>

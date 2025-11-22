@@ -34,9 +34,7 @@ export default function DiagnosticsPage() {
     <div className="min-h-screen bg-zinc-950 text-green-500 p-5 font-mono">
       <div className="max-w-4xl mx-auto">
         <div className="bg-black p-5 border-2 border-green-500 rounded-lg">
-          <h1 className="text-green-500 text-center text-2xl mb-8">
-            WebGPU Diagnostics Tool
-          </h1>
+          <h1 className="text-green-500 text-center text-2xl mb-8">WebGPU Diagnostics Tool</h1>
 
           {error && (
             <div className="mb-5 p-5 bg-red-900/50 border-2 border-red-500 rounded">

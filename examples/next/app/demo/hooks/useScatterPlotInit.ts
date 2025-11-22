@@ -15,15 +15,12 @@ export function useScatterPlotInit(options: Omit<ScatterPlotOptions, 'canvas'>) 
 
       try {
         // Dynamic import to avoid SSR issues
-        const { ScatterPlot, isWebGPUSupported, printDiagnostics } = await import(
-          '../../../../../dist/index.js'
-        );
+        const { ScatterPlot, isWebGPUSupported } = await import('../../../../../dist/index.js');
 
         if (!mounted) return;
 
         // Run diagnostics
         console.log('Running WebGPU diagnostics...');
-        await printDiagnostics();
 
         // Check WebGPU support
         if (!isWebGPUSupported()) {

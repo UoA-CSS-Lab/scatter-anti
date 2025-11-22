@@ -10,7 +10,7 @@ export class WebGPUContext {
     if (!navigator.gpu) {
       throw new Error(
         'WebGPU is not supported in this browser. ' +
-        'Please use Chrome 113+, Edge 113+, or Safari 18+ with WebGPU enabled.'
+          'Please use Chrome 113+, Edge 113+, or Safari 18+ with WebGPU enabled.'
       );
     }
 
@@ -22,16 +22,16 @@ export class WebGPUContext {
       adapter = await navigator.gpu.requestAdapter({
         powerPreference: 'high-performance',
       });
-    } catch (e) {
-      console.warn('Failed to request high-performance adapter:', e);
+    } catch {
+      // Silently ignore and try next adapter
     }
 
     // Second attempt: default adapter
     if (!adapter) {
       try {
         adapter = await navigator.gpu.requestAdapter();
-      } catch (e) {
-        console.error('Failed to request default adapter:', e);
+      } catch {
+        // Silently ignore and try next adapter
       }
     }
 
@@ -41,28 +41,22 @@ export class WebGPUContext {
         adapter = await navigator.gpu.requestAdapter({
           powerPreference: 'low-power',
         });
-      } catch (e) {
-        console.error('Failed to request low-power adapter:', e);
+      } catch {
+        // Silently ignore and try next adapter
       }
     }
 
     if (!adapter) {
       throw new Error(
         'Failed to get GPU adapter. Possible reasons:\n' +
-        '1. WebGPU is disabled in browser flags\n' +
-        '2. Your GPU is blocklisted\n' +
-        '3. GPU drivers need updating\n' +
-        '4. Running in a virtual machine without GPU access\n\n' +
-        'For Chrome/Edge: Visit chrome://gpu to check WebGPU status\n' +
-        'For Safari: Ensure macOS Sonoma 14.4+ with Safari 18+'
+          '1. WebGPU is disabled in browser flags\n' +
+          '2. Your GPU is blocklisted\n' +
+          '3. GPU drivers need updating\n' +
+          '4. Running in a virtual machine without GPU access\n\n' +
+          'For Chrome/Edge: Visit chrome://gpu to check WebGPU status\n' +
+          'For Safari: Ensure macOS Sonoma 14.4+ with Safari 18+'
       );
     }
-
-    // Log adapter info for debugging
-    console.log('WebGPU adapter obtained:', {
-      features: Array.from(adapter.features),
-      limits: adapter.limits,
-    });
 
     // Get GPU device
     try {
@@ -89,8 +83,6 @@ export class WebGPUContext {
       format: this.format,
       alphaMode: 'premultiplied',
     });
-
-    console.log('WebGPU initialized successfully with format:', this.format);
   }
 
   destroy(): void {
