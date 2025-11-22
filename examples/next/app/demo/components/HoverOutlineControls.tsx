@@ -9,11 +9,7 @@ export function HoverOutlineControls() {
   const [color, setColor] = useState('#ffffff');
   const [width, setWidth] = useState(2);
 
-  const updateHoverOutline = (
-    newEnabled?: boolean,
-    newColor?: string,
-    newWidth?: number
-  ) => {
+  const updateHoverOutline = (newEnabled?: boolean, newColor?: string, newWidth?: number) => {
     scatterPlot?.update({
       labels: {
         hoverOutlineOptions: {
@@ -89,9 +85,7 @@ export function HoverOutlineControls() {
               disabled={!isInitialized}
               className="flex-1"
             />
-            <span className="min-w-[50px] text-right font-semibold text-blue-500">
-              {width}px
-            </span>
+            <span className="min-w-[50px] text-right font-semibold text-blue-500">{width}px</span>
           </label>
         </div>
       </div>

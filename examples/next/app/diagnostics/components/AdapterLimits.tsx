@@ -25,9 +25,7 @@ export function AdapterLimits({ diagnostics }: AdapterLimitsProps) {
           {JSON.stringify(limits, null, 2)}
         </pre>
       ) : (
-        <p className="text-green-500 text-sm">
-          No limits available or adapter not obtained
-        </p>
+        <p className="text-green-500 text-sm">No limits available or adapter not obtained</p>
       )}
     </div>
   );

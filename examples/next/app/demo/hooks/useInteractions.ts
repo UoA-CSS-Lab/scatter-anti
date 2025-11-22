@@ -35,8 +35,8 @@ export function useInteractions() {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDraggingRef.current) return;
 
-      const dx = (e.clientX - lastPositionRef.current.x) / canvas.width * 2;
-      const dy = -(e.clientY - lastPositionRef.current.y) / canvas.height * 2;
+      const dx = ((e.clientX - lastPositionRef.current.x) / canvas.width) * 2;
+      const dy = (-(e.clientY - lastPositionRef.current.y) / canvas.height) * 2;
 
       scatterPlot.pan(dx, dy);
 

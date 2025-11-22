@@ -4,7 +4,7 @@
 export type PointSizeLambda = (point: any[], columns: string[]) => number;
 export type PointColorLambda = (point: any[], columns: string[]) => ColorRGBA;
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
-export type PointHoverCallback = (data: {row: any[], columns: string[]} | null) => void;
+export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
 
 export interface ColorRGBA {
   r: number; // 0-1
@@ -20,8 +20,8 @@ export interface HoverOutlineOptions {
   color?: string;
   /** Outline stroke width in pixels (default: 2) */
   width?: number;
-  minimumHoverSize?: number,
-  outlinedPointAddition?: number,
+  minimumHoverSize?: number;
+  outlinedPointAddition?: number;
 }
 
 export interface Label {
