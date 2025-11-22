@@ -1,5 +1,6 @@
-import {createParquetReader, ParquetData, ParquetReader} from '../repository.js';
-import type {ColorRGBA, PointColorLambda, PointSizeLambda, WhereCondition} from '../types.js';
+import type { ParquetData, ParquetReader } from '../repository.js';
+import { createParquetReader } from '../repository.js';
+import type { ColorRGBA, PointColorLambda, PointSizeLambda, WhereCondition } from '../types.js';
 import * as sql from 'sql-bricks';
 
 export interface DataLayerOptions {
@@ -35,8 +36,13 @@ export interface ProcessedData {
 export class DataLayer {
   private repository: ParquetReader | null = null;
   private visiblePointLimit: number = 100000;
-  private pointSizeLambda: PointSizeLambda = ((p, columns) => 3);
-  private pointColorLambda: PointColorLambda = ((p, columns) => ({ r: 0.3, g: 0.3, b: 0.8, a: 0.3 }));
+  private pointSizeLambda: PointSizeLambda = (_p, _columns) => 3;
+  private pointColorLambda: PointColorLambda = (_p, _columns) => ({
+    r: 0.3,
+    g: 0.3,
+    b: 0.8,
+    a: 0.3,
+  });
   private preferPointColumn: string | null = null;
   private whereConditions: WhereCondition[] = [];
 
@@ -45,7 +51,12 @@ export class DataLayer {
 
   // Query cancellation and state tracking
   private currentQueryId: number = 0; // Increments with each new query
-  private latestRequestedViewport: { zoom: number; panX: number; panY: number; queryId: number } | null = null;
+  private latestRequestedViewport: {
+    zoom: number;
+    panX: number;
+    panY: number;
+    queryId: number;
+  } | null = null;
 
   // Query throttling
   private readonly queryThrottleInterval: number = 300; // ms between queries
@@ -128,12 +139,12 @@ export class DataLayer {
 
         if (this.preferPointColumn != null) {
           // Use raw SQL for DuckDB-specific hash function and ORDER BY
-          query = query.orderBy(`${this.preferPointColumn} DESC`, 'hash(tid)');
+          query = query.orderBy(`${this.preferPointColumn} DESC`, 'hash(x + y)');
         } else {
-          query = query.orderBy('hash(tid)');
+          query = query.orderBy('hash(x + y)');
         }
         return `${query.toString()} LIMIT ${this.visiblePointLimit}`;
-      }
+      },
     });
   }
 
@@ -141,16 +152,16 @@ export class DataLayer {
    * Load initial data for the default viewport
    */
   private async loadInitialData(aspectRatio: number = 1.0): Promise<ProcessedData> {
-    const startTime = performance.now();
-
     const bounds = this.calculateVisibleBounds(1.0, 0.0, 0.0, aspectRatio);
     const data = await this.runQuery(bounds);
 
     if (!data) {
-      return { instanceData: new Float32Array(0), rowCount: 0, visiblePointLimit: this.visiblePointLimit };
+      return {
+        instanceData: new Float32Array(0),
+        rowCount: 0,
+        visiblePointLimit: this.visiblePointLimit,
+      };
     }
-
-    console.log(`Initial load: ${data.rowCount} points in ${(performance.now() - startTime).toFixed(1)}ms`);
 
     return this.processDataToGpuFormat(data);
   }
@@ -158,7 +169,12 @@ export class DataLayer {
   /**
    * Calculate visible bounds in world coordinates with margin
    */
-  calculateVisibleBounds(zoom: number, panX: number, panY: number, aspectRatio: number): VisibleBounds {
+  calculateVisibleBounds(
+    zoom: number,
+    panX: number,
+    panY: number,
+    aspectRatio: number
+  ): VisibleBounds {
     // Clip space bounds with margin
     const clipMin = -1 - this.VIEWPORT_MARGIN;
     const clipMax = 1 + this.VIEWPORT_MARGIN;
@@ -167,8 +183,8 @@ export class DataLayer {
     // The view matrix scales X by zoom/aspectRatio and Y by zoom, so we need to invert that:
     // worldX = (clipX - panX) * aspectRatio / zoom
     // worldY = (clipY - panY) / zoom
-    const minX = (clipMin - panX) * aspectRatio / zoom;
-    const maxX = (clipMax - panX) * aspectRatio / zoom;
+    const minX = ((clipMin - panX) * aspectRatio) / zoom;
+    const maxX = ((clipMax - panX) * aspectRatio) / zoom;
     const minY = (clipMin - panY) / zoom;
     const maxY = (clipMax - panY) / zoom;
 
@@ -178,7 +194,13 @@ export class DataLayer {
   /**
    * Schedule a visible points update with throttling
    */
-  scheduleVisiblePointsUpdate(zoom: number, panX: number, panY: number, aspectRatio: number, callback: (data: ProcessedData) => void): void {
+  scheduleVisiblePointsUpdate(
+    zoom: number,
+    panX: number,
+    panY: number,
+    aspectRatio: number,
+    callback: (data: ProcessedData) => void
+  ): void {
     // Increment query ID and store latest viewport request
     this.currentQueryId++;
     const queryId = this.currentQueryId;
@@ -228,20 +250,15 @@ export class DataLayer {
     this.lastQueryTime = performance.now();
 
     try {
-      let startTime = performance.now();
       const bounds = this.calculateVisibleBounds(zoom, panX, panY, aspectRatio);
       const data = await this.runQuery(bounds);
 
       // Check if this query is still relevant (hasn't been superseded)
       if (queryId !== this.currentQueryId) {
-        console.log(`Query ${queryId} cancelled (current: ${this.currentQueryId})`);
         return;
       }
 
-      console.log("query time: ", performance.now() - startTime);
-
       if (!data || data.rowCount === 0) {
-        console.warn('No points in visible bounds');
         return;
       }
 
@@ -250,12 +267,9 @@ export class DataLayer {
       // Final check before applying results
       if (queryId === this.currentQueryId) {
         callback(processedData);
-      } else {
-        console.log(`Query ${queryId} results discarded (current: ${this.currentQueryId})`);
       }
-
-    } catch (error) {
-      console.error('Error updating visible points:', error);
+    } catch {
+      // Silently ignore errors as they're handled by the query system
     }
   }
 
@@ -264,20 +278,22 @@ export class DataLayer {
    * Format: [x, y, r, g, b, a, size] per point
    */
   private processDataToGpuFormat(data: ParquetData): ProcessedData {
-    const startTime = performance.now();
-
     // Get x and y columns directly from columnar data (Arrow vectors)
     const xColumn = data.columnData.get('x');
     const yColumn = data.columnData.get('y');
 
     if (!xColumn || !yColumn) {
-      return { instanceData: new Float32Array(0), rowCount: 0, visiblePointLimit: this.visiblePointLimit };
+      return {
+        instanceData: new Float32Array(0),
+        rowCount: 0,
+        visiblePointLimit: this.visiblePointLimit,
+      };
     }
 
     const instanceData = new Float32Array(data.rowCount * 7);
 
     // Pre-cache all columns for row construction (needed for lambda functions)
-    const allColumns = data.columns.map(name => data.columnData.get(name));
+    const allColumns = data.columns.map((name) => data.columnData.get(name));
 
     for (let i = 0; i < data.rowCount; i++) {
       // Construct row array for lambda functions
@@ -298,7 +314,6 @@ export class DataLayer {
       instanceData[i * 7 + 6] = this.pointSizeLambda(point, data.columns);
     }
 
-    console.log("process time: ", performance.now() - startTime, "ms, row count: ", data.rowCount)
     return { instanceData, rowCount: data.rowCount, visiblePointLimit: this.visiblePointLimit };
   }
 
@@ -371,13 +386,13 @@ export class DataLayer {
 
     // Convert clip space to world coordinates
     // Inverse of: clipPos = worldPos * vec2(zoom / aspectRatio, zoom) + vec2(panX, panY)
-    const worldX = (clipX - panX) * aspectRatio / zoom;
+    const worldX = ((clipX - panX) * aspectRatio) / zoom;
     const worldY = (clipY - panY) / zoom;
 
     // Calculate threshold in world space
     // Convert pixel threshold to clip space, then to world space
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
-    const thresholdWorld = thresholdClip * aspectRatio / zoom;
+    const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
 
     // Calculate visible bounds for the query
     const bounds = this.calculateVisibleBounds(zoom, panX, panY, aspectRatio);
@@ -403,7 +418,7 @@ export class DataLayer {
       query = query.orderBy('distance');
 
       const data = await this.repository.query({
-        toString: () => `${query.toString()} LIMIT 1`
+        toString: () => `${query.toString()} LIMIT 1`,
       });
 
       if (!data || data.rowCount === 0) {
@@ -418,8 +433,7 @@ export class DataLayer {
       }
 
       return { row, columns: data.columns };
-    } catch (error) {
-      console.error('Error finding nearest point:', error);
+    } catch {
       return null;
     }
   }

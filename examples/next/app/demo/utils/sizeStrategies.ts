@@ -13,12 +13,10 @@ export function getPointSizeLambda(strategy: SizeStrategy): PointSizeLambda {
 
         // Convert BigInt to number if needed
         const rawValue = point[favoriteCountIdx];
-        const favoriteCount =
-          typeof rawValue === 'bigint' ? Number(rawValue) : rawValue || 0;
+        const favoriteCount = typeof rawValue === 'bigint' ? Number(rawValue) : rawValue || 0;
 
         // Scale logarithmically for better visualization: size range 2-8 pixels
-        const size =
-          2 + Math.min(6, (Math.log(favoriteCount + 1) / Math.log(1000)) * 6);
+        const size = 2 + Math.min(6, (Math.log(favoriteCount + 1) / Math.log(1000)) * 6);
         return size;
       };
 

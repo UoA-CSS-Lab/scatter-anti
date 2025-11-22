@@ -25,14 +25,10 @@ export function AdapterFeatures({ diagnostics }: AdapterFeaturesProps) {
           <pre className="bg-black p-3 border-l-4 border-green-600 overflow-x-auto whitespace-pre-wrap text-green-500 text-sm">
             {features.join('\n')}
           </pre>
-          <p className="text-green-500 text-xs mt-2">
-            Total: {features.length} feature(s)
-          </p>
+          <p className="text-green-500 text-xs mt-2">Total: {features.length} feature(s)</p>
         </div>
       ) : (
-        <p className="text-green-500 text-sm">
-          No features available or adapter not obtained
-        </p>
+        <p className="text-green-500 text-sm">No features available or adapter not obtained</p>
       )}
     </div>
   );
