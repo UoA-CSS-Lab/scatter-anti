@@ -92,6 +92,16 @@ export class DataLayer {
   }
 
   /**
+   * Load GeoJSON label data into DuckDB table
+   */
+  async loadLabelData(geojson: any): Promise<void> {
+    if (!this.repository) {
+      throw new Error('DataLayer not initialized. Call initialize() first.');
+    }
+    await this.repository.loadGeoJson(geojson);
+  }
+
+  /**
    * Build WHERE clause from a single condition
    */
   private buildWhereClause(condition: WhereCondition): sql.WhereExpression {

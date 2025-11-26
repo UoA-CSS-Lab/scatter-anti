@@ -74,6 +74,7 @@ export class ScatterPlot {
         if (response.ok) {
           const labelData = await response.json();
           this.loadLabels(labelData);
+          await this.dataLayer.loadLabelData(labelData);
         }
       } catch {
         // Silently ignore label loading errors in legacy API

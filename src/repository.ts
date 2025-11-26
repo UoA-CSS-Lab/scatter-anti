@@ -88,6 +88,27 @@ export class ParquetReader {
     return columns;
   }
 
+  async loadGeoJson(geojson: any): Promise<void> {
+    if (!this.conn) {
+      throw new Error('Database not initialized. Call initialize() first.');
+    }
+
+    const features = geojson.features;
+    if (features.length === 0) return;
+
+    const values = features.map((f: any) => {
+      const coords = f.geometry?.coordinates || [0, 0];
+      const props = f.properties || {};
+      return { x: coords[0], y: coords[1], ...props };
+    });
+
+    await this.db!.registerFileText('label_data.json', JSON.stringify(values));
+    await this.conn.query(
+      `CREATE TABLE IF NOT EXISTS label_data AS SELECT * FROM read_json_auto('label_data.json')`
+    );
+    await this.db!.dropFile('label_data.json');
+  }
+
   async close(): Promise<void> {
     if (this.conn) {
       await this.conn.close();
