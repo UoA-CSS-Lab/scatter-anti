@@ -45,7 +45,6 @@ function DemoContent() {
       backgroundColor: { r: 1, g: 1, b: 1, a: 1 },
     },
     data: {
-      preferPointColumn: 'favorite_count',
       visiblePointLimit: 100000,
       pointSizeLambda: getPointSizeLambda('data'),
       pointColorLambda: getPointColorLambda('data', null),
