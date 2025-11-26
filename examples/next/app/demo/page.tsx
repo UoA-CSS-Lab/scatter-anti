@@ -13,8 +13,8 @@ import { PointControls } from './components/PointControls';
 import { HoverOutlineControls } from './components/HoverOutlineControls';
 import { LabelControls } from './components/LabelControls';
 import { ErrorDisplay } from './components/ErrorDisplay';
-import { getPointSizeLambda } from './utils/sizeStrategies';
-import { getPointColorLambda } from './utils/colorSchemes';
+import { getSizeSql } from './utils/sizeStrategies';
+import { getColorSql } from './utils/colorSchemes';
 import type { Label } from '../../../../src/types';
 
 function DemoContent() {
@@ -46,8 +46,8 @@ function DemoContent() {
     },
     data: {
       visiblePointLimit: 100000,
-      pointSizeLambda: getPointSizeLambda('data'),
-      pointColorLambda: getPointColorLambda('data', null),
+      sizeSql: getSizeSql('data'),
+      colorSql: getColorSql('data'),
       idColumn: 'tid',
     },
     labels: {

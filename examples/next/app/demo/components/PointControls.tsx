@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useScatterPlot } from '../../context/ScatterPlotContext';
-import { getPointSizeLambda, type SizeStrategy } from '../utils/sizeStrategies';
-import { getPointColorLambda, type ColorScheme } from '../utils/colorSchemes';
+import { getSizeSql, type SizeStrategy } from '../utils/sizeStrategies';
+import { getColorSql, type ColorScheme } from '../utils/colorSchemes';
 
 export function PointControls() {
   const { scatterPlot, isInitialized } = useScatterPlot();
@@ -17,7 +17,7 @@ export function PointControls() {
     setSizeStrategy(strategy);
     scatterPlot?.update({
       data: {
-        pointSizeLambda: getPointSizeLambda(strategy),
+        sizeSql: getSizeSql(strategy),
       },
     });
   };
@@ -27,7 +27,7 @@ export function PointControls() {
     setColorScheme(scheme);
     scatterPlot?.update({
       data: {
-        pointColorLambda: getPointColorLambda(scheme, scatterPlot),
+        colorSql: getColorSql(scheme),
       },
     });
   };

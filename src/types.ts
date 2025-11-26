@@ -1,8 +1,6 @@
 /**
  * Type definitions for scatter-anti library
  */
-export type PointSizeLambda = (point: any[], columns: string[]) => number;
-export type PointColorLambda = (point: any[], columns: string[]) => ColorRGBA;
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
 export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
 
@@ -71,11 +69,11 @@ export interface DataOptions {
   /** Maximum number of visible points to render */
   visiblePointLimit?: number;
 
-  /** Function to determine point size from row data */
-  pointSizeLambda?: PointSizeLambda;
+  /** SQL expression for point size (e.g., "LOG(favorite_count + 1) * 2 + 2") */
+  sizeSql?: string;
 
-  /** Function to determine point color from row data */
-  pointColorLambda?: PointColorLambda;
+  /** SQL expression for point color as ARGB 32-bit integer (e.g., "0xFF0000FF") */
+  colorSql?: string;
 
   /** WHERE conditions to filter data (AND only) */
   whereConditions?: WhereCondition[];
