@@ -30,17 +30,7 @@ export class ParquetReader {
     this.conn = await this.db.connect();
   }
 
-  async loadParquetFile(filePath: string): Promise<void> {
-    if (!this.conn) {
-      throw new Error('Database not initialized. Call initialize() first.');
-    }
-
-    await this.conn.query(
-      `CREATE VIEW IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('${filePath}')`
-    );
-  }
-
-  async loadParquetFromUrl(url: string): Promise<void> {
+  async loadParquetFromUrl(url: string, idColumn: string): Promise<void> {
     if (!this.conn) {
       throw new Error('Database not initialized. Call initialize() first.');
     }
@@ -51,8 +41,10 @@ export class ParquetReader {
 
     await this.db!.registerFileBuffer('temp.parquet', uint8Array);
     await this.conn.query(
-      `CREATE VIEW IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
+      `CREATE TABLE IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
     );
+    await this.db!.dropFile('temp.parquet');
+    await this.conn.query(`CREATE UNIQUE INDEX idx_${idColumn} ON parquet_data (${idColumn});`);
   }
 
   async query(queryObj: any): Promise<ParquetData> {

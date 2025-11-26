@@ -8,6 +8,7 @@ export interface DataLayerOptions {
   pointSizeLambda?: PointSizeLambda;
   pointColorLambda?: PointColorLambda;
   whereConditions?: WhereCondition[];
+  idColumn: string;
 }
 
 export interface VisibleBounds {
@@ -21,6 +22,13 @@ export interface ProcessedData {
   instanceData: Float32Array;
   rowCount: number;
   visiblePointLimit: number;
+}
+
+interface VisibleData {
+  id: string;
+  x: number;
+  y: number;
+  size: number;
 }
 
 /**
@@ -44,6 +52,9 @@ export class DataLayer {
   });
   private whereConditions: WhereCondition[] = [];
 
+  private currentVisibleData: VisibleData[] = [];
+  private idColumn: string = '';
+
   // Spatial query optimization
   private readonly VIEWPORT_MARGIN = 0.5; // 50% extra on each side
 
@@ -61,11 +72,12 @@ export class DataLayer {
   private lastQueryTime: number = 0;
   private throttleTimer: number | null = null;
 
-  constructor(options: DataLayerOptions = {}) {
+  constructor(options: DataLayerOptions) {
     this.visiblePointLimit = options.visiblePointLimit ?? this.visiblePointLimit;
     this.pointSizeLambda = options.pointSizeLambda ?? this.pointSizeLambda;
     this.pointColorLambda = options.pointColorLambda ?? this.pointColorLambda;
     this.whereConditions = options.whereConditions ?? [];
+    this.idColumn = options.idColumn;
   }
 
   /**
@@ -73,7 +85,7 @@ export class DataLayer {
    */
   async initialize(dataUrl: string, aspectRatio: number = 1.0): Promise<ProcessedData> {
     this.repository = await createParquetReader();
-    await this.repository.loadParquetFromUrl(dataUrl);
+    await this.repository.loadParquetFromUrl(dataUrl, this.idColumn);
 
     // Load initial data
     return await this.loadInitialData(aspectRatio);
@@ -272,14 +284,17 @@ export class DataLayer {
     // Get x and y columns directly from columnar data (Arrow vectors)
     const xColumn = data.columnData.get('x');
     const yColumn = data.columnData.get('y');
+    const idColumn = data.columnData.get(this.idColumn);
 
-    if (!xColumn || !yColumn) {
+    if (!xColumn || !yColumn || !idColumn) {
       return {
         instanceData: new Float32Array(0),
         rowCount: 0,
         visiblePointLimit: this.visiblePointLimit,
       };
     }
+
+    const cachedData = new Array<VisibleData>(data.rowCount);
 
     const instanceData = new Float32Array(data.rowCount * 7);
 
@@ -303,7 +318,16 @@ export class DataLayer {
       instanceData[i * 7 + 4] = color.b;
       instanceData[i * 7 + 5] = color.a;
       instanceData[i * 7 + 6] = this.pointSizeLambda(point, data.columns);
+
+      cachedData[i] = {
+        id: idColumn.get(i),
+        x: xColumn.get(i),
+        y: yColumn.get(i),
+        size: instanceData[i * 7 + 6],
+      };
     }
+
+    this.currentVisibleData = cachedData;
 
     return { instanceData, rowCount: data.rowCount, visiblePointLimit: this.visiblePointLimit };
   }
@@ -323,6 +347,9 @@ export class DataLayer {
     }
     if (options.whereConditions !== undefined) {
       this.whereConditions = options.whereConditions;
+    }
+    if (options.idColumn !== undefined) {
+      this.idColumn = options.idColumn;
     }
   }
 
@@ -364,7 +391,7 @@ export class DataLayer {
     aspectRatio: number,
     thresholdPixels: number = 10
   ): Promise<{ row: any[]; columns: string[] } | null> {
-    if (!this.repository) {
+    if (this.currentVisibleData.length == 0 || this.repository == null) {
       return null;
     }
 
@@ -382,48 +409,46 @@ export class DataLayer {
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
 
-    // Calculate visible bounds for the query
-    const bounds = this.calculateVisibleBounds(zoom, panX, panY, aspectRatio);
+    let nearestId: string | null = null;
+    let nearestDistance = Infinity;
 
-    // Build DuckDB query to find nearest point
-    try {
-      let query = sql
-        .select('*', `sqrt(pow(x - ${worldX}, 2) + pow(y - ${worldY}, 2)) as distance`)
-        .from('parquet_data')
-        .where(
-          sql.between('x', bounds.minX, bounds.maxX),
-          sql.between('y', bounds.minY, bounds.maxY),
-          sql.lte(`sqrt(pow(x - ${worldX}, 2) + pow(y - ${worldY}, 2))`, thresholdWorld)
-        );
+    // Search through all visible points
+    // TODO: 現在は全探索しているが、quad treeとか使ってもいいかもしれない
+    for (let i = 0; i < this.currentVisibleData.length; i++) {
+      const pointX = this.currentVisibleData[i].x;
+      const pointY = this.currentVisibleData[i].y;
 
-      // Apply custom WHERE conditions
-      for (const condition of this.whereConditions) {
-        const whereClause = this.buildWhereClause(condition);
-        query = query.where(whereClause);
+      // Calculate distance in world space
+      const dx = pointX - worldX;
+      const dy = pointY - worldY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < nearestDistance && distance <= thresholdWorld) {
+        nearestDistance = distance;
+        nearestId = this.currentVisibleData[i].id;
       }
+    }
 
-      // Order by distance and limit to 1
-      query = query.orderBy('distance');
-
-      const data = await this.repository.query({
-        toString: () => `${query.toString()} LIMIT 1`,
-      });
-
-      if (!data || data.rowCount === 0) {
-        return null;
-      }
-
-      // Extract first row
-      const row: any[] = new Array(data.columns.length);
-      for (let j = 0; j < data.columns.length; j++) {
-        const column = data.columnData.get(data.columns[j]);
-        row[j] = column?.get(0);
-      }
-
-      return { row, columns: data.columns };
-    } catch {
+    if (nearestId == null) {
       return null;
     }
+
+    const data = await this.repository.query({
+      toString: () => `SELECT * FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
+    });
+
+    if (!data || data.rowCount === 0) {
+      return null;
+    }
+
+    // Extract first row
+    const row: any[] = new Array(data.columns.length);
+    for (let j = 0; j < data.columns.length; j++) {
+      const column = data.columnData.get(data.columns[j]);
+      row[j] = column?.get(0);
+    }
+
+    return { row, columns: data.columns };
   }
 
   /**

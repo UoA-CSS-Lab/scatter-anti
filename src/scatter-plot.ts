@@ -26,10 +26,11 @@ export class ScatterPlot {
   constructor(options: ScatterPlotOptions) {
     // Initialize the three layers
     this.dataLayer = new DataLayer({
-      visiblePointLimit: options.data?.visiblePointLimit,
-      pointSizeLambda: options.data?.pointSizeLambda,
-      pointColorLambda: options.data?.pointColorLambda,
-      whereConditions: options.data?.whereConditions,
+      visiblePointLimit: options.data.visiblePointLimit,
+      pointSizeLambda: options.data.pointSizeLambda,
+      pointColorLambda: options.data.pointColorLambda,
+      whereConditions: options.data.whereConditions,
+      idColumn: options.data.idColumn,
     });
 
     this.gpuLayer = new GpuLayer({

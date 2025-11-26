@@ -48,6 +48,7 @@ function DemoContent() {
       visiblePointLimit: 100000,
       pointSizeLambda: getPointSizeLambda('data'),
       pointColorLambda: getPointColorLambda('data', null),
+      idColumn: 'tid',
     },
     labels: {
       url: '/caGW6XbYcH7HBWRdNlHk.geojson',
