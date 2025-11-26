@@ -7,7 +7,6 @@ export interface DataLayerOptions {
   visiblePointLimit?: number;
   pointSizeLambda?: PointSizeLambda;
   pointColorLambda?: PointColorLambda;
-  preferPointColumn?: string;
   whereConditions?: WhereCondition[];
 }
 
@@ -43,7 +42,6 @@ export class DataLayer {
     b: 0.8,
     a: 0.3,
   });
-  private preferPointColumn: string | null = null;
   private whereConditions: WhereCondition[] = [];
 
   // Spatial query optimization
@@ -67,7 +65,6 @@ export class DataLayer {
     this.visiblePointLimit = options.visiblePointLimit ?? this.visiblePointLimit;
     this.pointSizeLambda = options.pointSizeLambda ?? this.pointSizeLambda;
     this.pointColorLambda = options.pointColorLambda ?? this.pointColorLambda;
-    this.preferPointColumn = options.preferPointColumn ?? null;
     this.whereConditions = options.whereConditions ?? [];
   }
 
@@ -137,12 +134,6 @@ export class DataLayer {
           query = query.where(whereClause);
         }
 
-        if (this.preferPointColumn != null) {
-          // Use raw SQL for DuckDB-specific hash function and ORDER BY
-          query = query.orderBy(`${this.preferPointColumn} DESC`, 'hash(x + y)');
-        } else {
-          query = query.orderBy('hash(x + y)');
-        }
         return `${query.toString()} LIMIT ${this.visiblePointLimit}`;
       },
     });
@@ -329,9 +320,6 @@ export class DataLayer {
     }
     if (options.pointColorLambda !== undefined) {
       this.pointColorLambda = options.pointColorLambda;
-    }
-    if (options.preferPointColumn !== undefined) {
-      this.preferPointColumn = options.preferPointColumn;
     }
     if (options.whereConditions !== undefined) {
       this.whereConditions = options.whereConditions;

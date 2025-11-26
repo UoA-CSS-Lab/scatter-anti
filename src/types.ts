@@ -77,9 +77,6 @@ export interface DataOptions {
   /** Function to determine point color from row data */
   pointColorLambda?: PointColorLambda;
 
-  /** Preferred column name for point size (fallback if pointSizeLambda not provided) */
-  preferPointColumn?: string;
-
   /** WHERE conditions to filter data (AND only) */
   whereConditions?: WhereCondition[];
 }

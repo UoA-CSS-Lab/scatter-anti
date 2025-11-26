@@ -29,7 +29,6 @@ export class ScatterPlot {
       visiblePointLimit: options.data?.visiblePointLimit,
       pointSizeLambda: options.data?.pointSizeLambda,
       pointColorLambda: options.data?.pointColorLambda,
-      preferPointColumn: options.data?.preferPointColumn,
       whereConditions: options.data?.whereConditions,
     });
 
@@ -113,7 +112,6 @@ export class ScatterPlot {
         pointSizeLambda: options.data.pointSizeLambda,
         pointColorLambda: options.data.pointColorLambda,
         visiblePointLimit: options.data.visiblePointLimit,
-        preferPointColumn: options.data.preferPointColumn,
         whereConditions: options.data.whereConditions,
       });
     }
