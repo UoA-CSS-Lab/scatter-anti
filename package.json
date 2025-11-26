@@ -1,6 +1,6 @@
 {
   "name": "scatter-anti",
-  "version": "0.1.4",
+  "version": "0.1.1",
   "description": "A TypeScript library for plotting scatter charts using WebGPU",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,13 +24,6 @@
   ],
   "author": "",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/UoA-CSS-Lab/scatter-anti.git"
-  },
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "devDependencies": {
     "@duckdb/duckdb-wasm": "^1.30.0",
     "@eslint/js": "^9.39.1",
