@@ -27,8 +27,8 @@ export class ScatterPlot {
     // Initialize the three layers
     this.dataLayer = new DataLayer({
       visiblePointLimit: options.data.visiblePointLimit,
-      pointSizeLambda: options.data.pointSizeLambda,
-      pointColorLambda: options.data.pointColorLambda,
+      sizeSql: options.data.sizeSql,
+      colorSql: options.data.colorSql,
       whereConditions: options.data.whereConditions,
       idColumn: options.data.idColumn,
     });
@@ -111,8 +111,8 @@ export class ScatterPlot {
     // Update data layer
     if (options.data !== undefined) {
       this.dataLayer.updateOptions({
-        pointSizeLambda: options.data.pointSizeLambda,
-        pointColorLambda: options.data.pointColorLambda,
+        sizeSql: options.data.sizeSql,
+        colorSql: options.data.colorSql,
         visiblePointLimit: options.data.visiblePointLimit,
         whereConditions: options.data.whereConditions,
       });

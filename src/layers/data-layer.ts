@@ -1,12 +1,11 @@
 import type { ParquetData, ParquetReader } from '../repository.js';
 import { createParquetReader } from '../repository.js';
-import type { ColorRGBA, PointColorLambda, PointSizeLambda, WhereCondition } from '../types.js';
-import * as sql from 'sql-bricks';
+import type { WhereCondition } from '../types.js';
 
 export interface DataLayerOptions {
   visiblePointLimit?: number;
-  pointSizeLambda?: PointSizeLambda;
-  pointColorLambda?: PointColorLambda;
+  sizeSql?: string;
+  colorSql?: string;
   whereConditions?: WhereCondition[];
   idColumn: string;
 }
@@ -43,13 +42,8 @@ interface VisibleData {
 export class DataLayer {
   private repository: ParquetReader | null = null;
   private visiblePointLimit: number = 100000;
-  private pointSizeLambda: PointSizeLambda = (_p, _columns) => 3;
-  private pointColorLambda: PointColorLambda = (_p, _columns) => ({
-    r: 0.3,
-    g: 0.3,
-    b: 0.8,
-    a: 0.3,
-  });
+  private sizeSql: string = '3';
+  private colorSql: string = '0x4D4D4DCC'; // ARGB: a=0.3, r=0.3, g=0.3, b=0.8
   private whereConditions: WhereCondition[] = [];
 
   private currentVisibleData: VisibleData[] = [];
@@ -74,8 +68,8 @@ export class DataLayer {
 
   constructor(options: DataLayerOptions) {
     this.visiblePointLimit = options.visiblePointLimit ?? this.visiblePointLimit;
-    this.pointSizeLambda = options.pointSizeLambda ?? this.pointSizeLambda;
-    this.pointColorLambda = options.pointColorLambda ?? this.pointColorLambda;
+    this.sizeSql = options.sizeSql ?? this.sizeSql;
+    this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
     this.idColumn = options.idColumn;
   }
@@ -102,61 +96,44 @@ export class DataLayer {
   }
 
   /**
-   * Build WHERE clause from a single condition
+   * Build WHERE clause string from a single condition
    */
-  private buildWhereClause(condition: WhereCondition): sql.WhereExpression {
+  private buildWhereClauseString(condition: WhereCondition): string {
     if (condition.type === 'numeric') {
-      const column = condition.column;
-      const value = condition.value;
-
-      switch (condition.operator) {
-        case '>=':
-          return sql.gte(column, value);
-        case '>':
-          return sql.gt(column, value);
-        case '<=':
-          return sql.lte(column, value);
-        case '<':
-          return sql.lt(column, value);
-      }
+      return `${condition.column} ${condition.operator} ${condition.value}`;
     } else {
-      // String filter
-      const column = condition.column;
-      // Escape single quotes in the value
+      // String filter - escape single quotes
       const escapedValue = condition.value.replace(/'/g, "''");
 
       switch (condition.operator) {
         case 'equals':
-          return sql.eq(column, escapedValue);
+          return `${condition.column} = '${escapedValue}'`;
         case 'contains':
-          return sql.like(column, `%${escapedValue}%`);
+          return `${condition.column} LIKE '%${escapedValue}%'`;
         case 'startsWith':
-          return sql.like(column, `${escapedValue}%`);
+          return `${condition.column} LIKE '${escapedValue}%'`;
         case 'endsWith':
-          return sql.like(column, `%${escapedValue}`);
+          return `${condition.column} LIKE '%${escapedValue}'`;
       }
     }
   }
 
   async runQuery(bounds: VisibleBounds): Promise<ParquetData | undefined> {
-    // processing in lambda expression is maybe faster
     return this.repository?.query({
       toString: () => {
-        let query = sql
-          .select('*')
-          .from('parquet_data')
-          .where(
-            sql.between('x', bounds.minX, bounds.maxX),
-            sql.between('y', bounds.minY, bounds.maxY)
-          );
+        const whereConditions: string[] = [
+          `x BETWEEN ${bounds.minX} AND ${bounds.maxX}`,
+          `y BETWEEN ${bounds.minY} AND ${bounds.maxY}`,
+        ];
 
         // Apply custom WHERE conditions (all combined with AND)
         for (const condition of this.whereConditions) {
-          const whereClause = this.buildWhereClause(condition);
-          query = query.where(whereClause);
+          whereConditions.push(this.buildWhereClauseString(condition));
         }
 
-        return `${query.toString()} LIMIT ${this.visiblePointLimit}`;
+        const whereClause = whereConditions.join(' AND ');
+
+        return `SELECT x, y, (${this.sizeSql}) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data WHERE ${whereClause} LIMIT ${this.visiblePointLimit}`;
       },
     });
   }
@@ -291,12 +268,13 @@ export class DataLayer {
    * Format: [x, y, r, g, b, a, size] per point
    */
   private processDataToGpuFormat(data: ParquetData): ProcessedData {
-    // Get x and y columns directly from columnar data (Arrow vectors)
     const xColumn = data.columnData.get('x');
     const yColumn = data.columnData.get('y');
+    const sizeColumn = data.columnData.get('__size__');
+    const colorColumn = data.columnData.get('__color__');
     const idColumn = data.columnData.get(this.idColumn);
 
-    if (!xColumn || !yColumn || !idColumn) {
+    if (!xColumn || !yColumn || !sizeColumn || !colorColumn || !idColumn) {
       return {
         instanceData: new Float32Array(0),
         rowCount: 0,
@@ -305,35 +283,37 @@ export class DataLayer {
     }
 
     const cachedData = new Array<VisibleData>(data.rowCount);
-
     const instanceData = new Float32Array(data.rowCount * 7);
 
-    // Pre-cache all columns for row construction (needed for lambda functions)
-    const allColumns = data.columns.map((name) => data.columnData.get(name));
-
     for (let i = 0; i < data.rowCount; i++) {
-      // Construct row array for lambda functions
-      const point: any[] = new Array(data.columns.length);
-      for (let j = 0; j < data.columns.length; j++) {
-        point[j] = allColumns[j]?.get(i);
-      }
+      const x = xColumn.get(i);
+      const y = yColumn.get(i);
+      const size = sizeColumn.get(i);
+      const argbRaw = colorColumn.get(i);
 
-      const color = this.pointColorLambda(point, data.columns);
+      // Handle BigInt from DuckDB
+      const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
 
-      // Direct columnar access for x/y coordinates
-      instanceData[i * 7 + 0] = xColumn.get(i); // x
-      instanceData[i * 7 + 1] = yColumn.get(i); // y
-      instanceData[i * 7 + 2] = color.r;
-      instanceData[i * 7 + 3] = color.g;
-      instanceData[i * 7 + 4] = color.b;
-      instanceData[i * 7 + 5] = color.a;
-      instanceData[i * 7 + 6] = this.pointSizeLambda(point, data.columns);
+      // Unpack ARGB integer to RGBA floats (0-1 range)
+      // ARGB format: 0xAARRGGBB
+      const a = ((argb >>> 24) & 0xff) / 255;
+      const r = ((argb >>> 16) & 0xff) / 255;
+      const g = ((argb >>> 8) & 0xff) / 255;
+      const b = (argb & 0xff) / 255;
+
+      instanceData[i * 7 + 0] = x;
+      instanceData[i * 7 + 1] = y;
+      instanceData[i * 7 + 2] = r;
+      instanceData[i * 7 + 3] = g;
+      instanceData[i * 7 + 4] = b;
+      instanceData[i * 7 + 5] = a;
+      instanceData[i * 7 + 6] = size;
 
       cachedData[i] = {
         id: idColumn.get(i),
-        x: xColumn.get(i),
-        y: yColumn.get(i),
-        size: instanceData[i * 7 + 6],
+        x: x,
+        y: y,
+        size: size,
       };
     }
 
@@ -349,11 +329,11 @@ export class DataLayer {
     if (options.visiblePointLimit !== undefined) {
       this.visiblePointLimit = options.visiblePointLimit;
     }
-    if (options.pointSizeLambda !== undefined) {
-      this.pointSizeLambda = options.pointSizeLambda;
+    if (options.sizeSql !== undefined) {
+      this.sizeSql = options.sizeSql;
     }
-    if (options.pointColorLambda !== undefined) {
-      this.pointColorLambda = options.pointColorLambda;
+    if (options.colorSql !== undefined) {
+      this.colorSql = options.colorSql;
     }
     if (options.whereConditions !== undefined) {
       this.whereConditions = options.whereConditions;
@@ -364,17 +344,32 @@ export class DataLayer {
   }
 
   /**
-   * Get point color by applying color lambda to row data
+   * Get point color from row data (expects __color__ column from SQL)
    */
-  getPointColor(row: any[], columns: string[]): ColorRGBA {
-    return this.pointColorLambda(row, columns);
+  getPointColor(row: any[], columns: string[]): { r: number; g: number; b: number; a: number } {
+    const colorIdx = columns.indexOf('__color__');
+    if (colorIdx === -1) {
+      return { r: 0.3, g: 0.3, b: 0.8, a: 0.3 }; // fallback
+    }
+    const argbRaw = row[colorIdx];
+    const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
+    return {
+      a: ((argb >>> 24) & 0xff) / 255,
+      r: ((argb >>> 16) & 0xff) / 255,
+      g: ((argb >>> 8) & 0xff) / 255,
+      b: (argb & 0xff) / 255,
+    };
   }
 
   /**
-   * Get point size by applying size lambda to row data
+   * Get point size from row data (expects __size__ column from SQL)
    */
   getPointSize(row: any[], columns: string[]): number {
-    return this.pointSizeLambda(row, columns);
+    const sizeIdx = columns.indexOf('__size__');
+    if (sizeIdx === -1) {
+      return 3; // fallback
+    }
+    return row[sizeIdx];
   }
 
   /**
@@ -444,7 +439,8 @@ export class DataLayer {
     }
 
     const data = await this.repository.query({
-      toString: () => `SELECT * FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
+      toString: () =>
+        `SELECT *, (${this.sizeSql}) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
     });
 
     if (!data || data.rowCount === 0) {

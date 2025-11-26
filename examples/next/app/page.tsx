@@ -13,8 +13,8 @@ import { PointControls } from './demo/components/PointControls';
 import { HoverOutlineControls } from './demo/components/HoverOutlineControls';
 import { LabelControls } from './demo/components/LabelControls';
 import { ErrorDisplay } from './demo/components/ErrorDisplay';
-import { getPointSizeLambda } from './demo/utils/sizeStrategies';
-import { getPointColorLambda } from './demo/utils/colorSchemes';
+import { getSizeSql } from './demo/utils/sizeStrategies';
+import { getColorSql } from './demo/utils/colorSchemes';
 
 function DemoContent() {
   const [pointHover, setPointHover] = useState<{
@@ -45,8 +45,8 @@ function DemoContent() {
     },
     data: {
       visiblePointLimit: 100000,
-      pointSizeLambda: getPointSizeLambda('data'),
-      pointColorLambda: getPointColorLambda('data', null),
+      sizeSql: getSizeSql('data'),
+      colorSql: getColorSql('data'),
       idColumn: 'tid',
     },
     labels: {
