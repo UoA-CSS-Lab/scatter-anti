@@ -79,6 +79,9 @@ export interface DataOptions {
 
   /** WHERE conditions to filter data (AND only) */
   whereConditions?: WhereCondition[];
+
+  /** Column name to identify points */
+  idColumn: string;
 }
 
 export interface GpuOptions {
@@ -116,7 +119,7 @@ export interface ScatterPlotOptions {
   dataUrl: string;
 
   /** Data layer options */
-  data?: DataOptions;
+  data: DataOptions;
 
   /** GPU rendering options */
   gpu?: GpuOptions;
