@@ -36,7 +36,7 @@ export class ParquetReader {
     }
 
     await this.conn.query(
-      `CREATE TABLE IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('${filePath}')`
+      `CREATE VIEW IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('${filePath}')`
     );
   }
 
@@ -51,7 +51,7 @@ export class ParquetReader {
 
     await this.db!.registerFileBuffer('temp.parquet', uint8Array);
     await this.conn.query(
-      `CREATE TABLE IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
+      `CREATE VIEW IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
     );
   }
 
