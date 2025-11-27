@@ -1,6 +1,7 @@
 import type { ParquetData, ParquetReader } from '../repository.js';
 import { createParquetReader } from '../repository.js';
-import type { WhereCondition } from '../types.js';
+import type { WhereCondition, ScatterPlotError } from '../types.js';
+import { createError } from '../errors.js';
 
 export interface DataLayerOptions {
   visiblePointLimit?: number;
@@ -8,6 +9,8 @@ export interface DataLayerOptions {
   colorSql?: string;
   whereConditions?: WhereCondition[];
   idColumn: string;
+  /** Callback to emit errors to ScatterPlot */
+  onError?: (error: ScatterPlotError) => void;
 }
 
 export interface VisibleBounds {
@@ -45,6 +48,7 @@ export class DataLayer {
   private sizeSql: string = '3';
   private colorSql: string = '0x4D4D4DCC'; // ARGB: a=0.3, r=0.3, g=0.3, b=0.8
   private whereConditions: WhereCondition[] = [];
+  private onError?: (error: ScatterPlotError) => void;
 
   private currentVisibleData: VisibleData[] = [];
   private idColumn: string = '';
@@ -72,6 +76,7 @@ export class DataLayer {
     this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
     this.idColumn = options.idColumn;
+    this.onError = options.onError;
   }
 
   /**
@@ -258,8 +263,16 @@ export class DataLayer {
       if (queryId === this.currentQueryId) {
         callback(processedData);
       }
-    } catch {
-      // Silently ignore errors as they're handled by the query system
+    } catch (e) {
+      // Emit error event instead of silently ignoring
+      if (this.onError) {
+        this.onError(
+          createError('QUERY_FAILED', 'Background viewport query failed', {
+            cause: e instanceof Error ? e : undefined,
+            context: { zoom, panX, panY, queryId },
+          })
+        );
+      }
     }
   }
 
