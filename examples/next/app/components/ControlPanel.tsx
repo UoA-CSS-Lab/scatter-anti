@@ -3,7 +3,6 @@
 import { PointSizeSlider } from './PointSizeSlider';
 import { ColorExpressionInput } from './ColorExpressionInput';
 import { SearchBox } from './SearchBox';
-import { ShowLabelsButton } from './ShowLabelsButton';
 import { PointLimitSlider } from './PointLimitSlider';
 import { StatsDisplay } from './StatsDisplay';
 
@@ -18,7 +17,6 @@ export function ControlPanel() {
       <PointSizeSlider />
       <ColorExpressionInput />
       <SearchBox />
-      <ShowLabelsButton />
     </div>
   );
 }

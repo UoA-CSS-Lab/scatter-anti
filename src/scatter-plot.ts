@@ -398,8 +398,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     }
   }
 
-  async runQuery(query: any): Promise<ParquetData | undefined> {
-    return await this.dataLayer.runQuery(query);
+  async runQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
+    return await this.dataLayer.executeQuery(query);
   }
 
   getLabels(): Label[] {

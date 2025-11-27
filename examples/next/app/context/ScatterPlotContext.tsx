@@ -81,11 +81,17 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
           colorSql: filtersRef.current.colorSql,
         },
         gpu: {
-          backgroundColor: { r: 0.97, g: 0.97, b: 0.97, a: 1.0 },
+          backgroundColor: { r: 0.85, g: 0.85, b: 0.85, a: 1.0 },
         },
         labels: {
+          url: 'label.geojson',
           onClick: (label) => {
             console.log('Label clicked:', label);
+          },
+          hoverOutlineOptions: {
+            enabled: true,
+            color: '#ffffff',
+            width: 2,
           },
         },
         interaction: {
@@ -105,7 +111,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         plot.render();
 
         // Get point count
-        const result = await plot.runQuery('SELECT COUNT(*) as count FROM data');
+        const result = await plot.runQuery('SELECT COUNT(*) as count FROM parquet_data');
         let pointCount = 0;
         if (result && result.rowCount > 0) {
           const countCol = result.columnData.get('count');

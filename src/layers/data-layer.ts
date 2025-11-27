@@ -144,6 +144,18 @@ export class DataLayer {
   }
 
   /**
+   * Execute a custom SQL query against the data
+   * Supports both string queries and objects with toString method
+   */
+  async executeQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
+    if (!this.repository) {
+      return undefined;
+    }
+    const queryObj = typeof query === 'string' ? { toString: () => query } : query;
+    return this.repository.query(queryObj);
+  }
+
+  /**
    * Load initial data for the default viewport
    */
   private async loadInitialData(aspectRatio: number = 1.0): Promise<ProcessedData> {
