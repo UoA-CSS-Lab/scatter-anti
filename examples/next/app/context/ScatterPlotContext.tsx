@@ -16,6 +16,7 @@ interface ScatterPlotState {
   isLoading: boolean;
   error: string | null;
   hoveredPoint: { row: unknown[]; columns: string[] } | null;
+  pointCount: number | null;
 }
 
 interface ScatterPlotContextValue {
@@ -37,6 +38,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     isLoading: false,
     error: null,
     hoveredPoint: null,
+    pointCount: null,
   });
 
   const filtersRef = useRef<{
@@ -101,7 +103,18 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         await plot.initialize();
         plotRef.current = plot;
         plot.render();
-        setState((s) => ({ ...s, isInitialized: true, isLoading: false }));
+
+        // Get point count
+        const result = await plot.runQuery('SELECT COUNT(*) as count FROM data');
+        let pointCount = 0;
+        if (result && result.rowCount > 0) {
+          const countCol = result.columnData.get('count');
+          if (countCol) {
+            pointCount = Number(countCol[0]);
+          }
+        }
+
+        setState((s) => ({ ...s, isInitialized: true, isLoading: false, pointCount }));
       } catch (e) {
         setState((s) => ({
           ...s,

@@ -3,7 +3,11 @@
 import { useMemo } from 'react';
 import { useScatterPlot } from '../context/ScatterPlotContext';
 
-export function HoverInfoDisplay() {
+interface HoverInfoDisplayProps {
+  mousePosition: { x: number; y: number };
+}
+
+export function HoverInfoDisplay({ mousePosition }: HoverInfoDisplayProps) {
   const { state } = useScatterPlot();
 
   const formattedData = useMemo(() => {
@@ -18,11 +22,18 @@ export function HoverInfoDisplay() {
     return JSON.stringify(obj, null, 2);
   }, [state.hoveredPoint]);
 
+  if (!formattedData) return null;
+
   return (
-    <div className="flex flex-col gap-2 mt-auto">
-      <label className="text-sm font-medium text-zinc-700">Hovered Point</label>
-      <pre className="p-2 bg-white border border-zinc-300 rounded text-zinc-700 text-xs overflow-auto max-h-40 min-h-[80px]">
-        {formattedData || 'Hover over a point to see details'}
+    <div
+      className="fixed z-50 pointer-events-none"
+      style={{
+        left: mousePosition.x + 15,
+        top: mousePosition.y - 10,
+      }}
+    >
+      <pre className="p-2 bg-white border border-zinc-300 rounded shadow-lg text-zinc-700 text-xs max-w-xs">
+        {formattedData}
       </pre>
     </div>
   );

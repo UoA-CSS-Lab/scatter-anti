@@ -1,7 +1,8 @@
 'use client';
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { useScatterPlot } from '../context/ScatterPlotContext';
+import { HoverInfoDisplay } from './HoverInfoDisplay';
 
 export function ScatterPlotCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -10,6 +11,7 @@ export function ScatterPlotCanvas() {
   const initializedRef = useRef(false);
   const isDraggingRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (canvasRef.current && !initializedRef.current) {
@@ -102,9 +104,34 @@ export function ScatterPlotCanvas() {
     };
   }, [plot]);
 
+  // Track mouse position for hover tooltip
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    };
+
+    const handleMouseLeave = () => {
+      setMousePosition(null);
+    };
+
+    container.addEventListener('mousemove', handleMouseMove);
+    container.addEventListener('mouseleave', handleMouseLeave);
+
+    return () => {
+      container.removeEventListener('mousemove', handleMouseMove);
+      container.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, []);
+
   return (
     <div ref={containerRef} className="absolute inset-0">
       <canvas ref={canvasRef} className="block w-full h-full" />
+      {state.hoveredPoint && mousePosition && (
+        <HoverInfoDisplay mousePosition={mousePosition} />
+      )}
       {state.isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <span className="text-white">Loading...</span>
