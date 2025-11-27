@@ -138,7 +138,7 @@ export class DataLayer {
 
         const whereClause = whereConditions.join(' AND ');
 
-        return `SELECT x, y, (${this.sizeSql}) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data WHERE ${whereClause} LIMIT ${this.visiblePointLimit}`;
+        return `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data WHERE ${whereClause} LIMIT ${this.visiblePointLimit}`;
       },
     });
   }
@@ -453,7 +453,7 @@ export class DataLayer {
 
     const data = await this.repository.query({
       toString: () =>
-        `SELECT *, (${this.sizeSql}) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
+        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
     });
 
     if (!data || data.rowCount === 0) {
