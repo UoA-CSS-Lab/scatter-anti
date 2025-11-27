@@ -11,7 +11,8 @@
   "dependencies": {
     "next": "16.0.5",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "scatter-anti": "file:../../"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
