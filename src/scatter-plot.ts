@@ -1,9 +1,11 @@
-import type { Label, ScatterPlotOptions } from './types.js';
+import type { Label, ScatterPlotOptions, ScatterPlotEventMap, ScatterPlotError } from './types.js';
 import { DataLayer } from './layers/data-layer.js';
 import { GpuLayer } from './layers/gpu-layer.js';
 import { LabelLayer } from './layers/label-layer.js';
 import type { ProcessedData } from './layers/data-layer.js';
 import type { ParquetData } from './repository.js';
+import { EventEmitter } from './event-emitter.js';
+import { createError } from './errors.js';
 
 /**
  * Main ScatterPlot class for rendering scatter plots using WebGPU
@@ -12,8 +14,22 @@ import type { ParquetData } from './repository.js';
  * - DataLayer: Handles data acquisition and query management
  * - GpuLayer: Manages WebGPU rendering and transformations
  * - LabelLayer: Handles 2D canvas overlay for labels
+ *
+ * @example
+ * ```typescript
+ * const plot = new ScatterPlot({ ... });
+ *
+ * // Listen for errors
+ * plot.on('error', (error) => {
+ *   if (error.severity === 'fatal') {
+ *     showErrorModal(error.message);
+ *   }
+ * });
+ *
+ * await plot.initialize();
+ * ```
  */
-export class ScatterPlot {
+export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   // Three distinct layers
   private readonly dataLayer: DataLayer;
   private gpuLayer: GpuLayer;
@@ -24,6 +40,8 @@ export class ScatterPlot {
   private readonly labelUrl?: string;
 
   constructor(options: ScatterPlotOptions) {
+    super();
+
     // Initialize the three layers
     this.dataLayer = new DataLayer({
       visiblePointLimit: options.data.visiblePointLimit,
@@ -31,6 +49,7 @@ export class ScatterPlot {
       colorSql: options.data.colorSql,
       whereConditions: options.data.whereConditions,
       idColumn: options.data.idColumn,
+      onError: (error) => this.emitError(error),
     });
 
     this.gpuLayer = new GpuLayer({
@@ -57,28 +76,98 @@ export class ScatterPlot {
    * Initialize WebGPU and create rendering resources
    */
   async initialize(): Promise<void> {
-    // Get the actual canvas aspect ratio for initial data load
-    const aspectRatio = this.gpuLayer.getAspectRatio();
-    const initialData = await this.dataLayer.initialize(this.dataUrl, aspectRatio);
+    try {
+      // Get the actual canvas aspect ratio for initial data load
+      const aspectRatio = this.gpuLayer.getAspectRatio();
+      const initialData = await this.dataLayer.initialize(this.dataUrl, aspectRatio);
 
-    // 2. Initialize GPU layer with initial data
-    await this.gpuLayer.initialize(initialData);
+      // 2. Initialize GPU layer with initial data
+      await this.gpuLayer.initialize(initialData);
 
-    // 3. Initialize label layer (creates canvas overlay)
-    this.labelLayer.initialize();
+      // 3. Initialize label layer (creates canvas overlay)
+      this.labelLayer.initialize();
+    } catch (e) {
+      // Emit error event instead of throwing
+      const error = this.categorizeInitError(e);
+      this.emitError(error);
+      return;
+    }
 
     // 4. Auto-fetch labels if labelUrl is provided
     if (this.labelUrl) {
-      try {
-        const response = await fetch(this.labelUrl);
-        if (response.ok) {
-          const labelData = await response.json();
-          this.loadLabels(labelData);
-          await this.dataLayer.loadLabelData(labelData);
-        }
-      } catch {
-        // Silently ignore label loading errors in legacy API
+      await this.loadLabelsFromUrl(this.labelUrl);
+    }
+  }
+
+  /**
+   * Load labels from URL with error handling
+   */
+  private async loadLabelsFromUrl(url: string): Promise<void> {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        this.emitError(
+          createError(
+            'LABEL_FETCH_FAILED',
+            `Failed to fetch labels: ${response.status} ${response.statusText}`,
+            {
+              context: { url, status: response.status },
+            }
+          )
+        );
+        return;
       }
+      const labelData = await response.json();
+      this.loadLabels(labelData);
+      await this.dataLayer.loadLabelData(labelData);
+    } catch (e) {
+      this.emitError(
+        createError('LABEL_FETCH_FAILED', 'Network error while fetching labels', {
+          cause: e instanceof Error ? e : undefined,
+          context: { url },
+        })
+      );
+    }
+  }
+
+  /**
+   * Categorize an initialization error into a ScatterPlotError
+   */
+  private categorizeInitError(e: unknown): ScatterPlotError {
+    const message = e instanceof Error ? e.message : String(e);
+    const cause = e instanceof Error ? e : undefined;
+
+    if (message.includes('WebGPU is not supported')) {
+      return createError('WEBGPU_NOT_SUPPORTED', message, { cause });
+    }
+    if (message.includes('GPU adapter') || message.includes('Failed to get GPU adapter')) {
+      return createError('GPU_ADAPTER_NOT_AVAILABLE', message, { cause });
+    }
+    if (message.includes('GPU device') || message.includes('Failed to get GPU device')) {
+      return createError('GPU_DEVICE_FAILED', message, { cause });
+    }
+    if (message.includes('WebGPU context') || message.includes('Failed to get WebGPU context')) {
+      return createError('WEBGPU_CONTEXT_FAILED', message, { cause });
+    }
+    if (message.includes('Database not initialized') || message.includes('not initialized')) {
+      return createError('DATA_LAYER_NOT_INITIALIZED', message, { cause });
+    }
+    if (message.includes('Parquet') || message.includes('parquet') || message.includes('load')) {
+      return createError('PARQUET_LOAD_FAILED', message, { cause });
+    }
+
+    // Default to WebGPU not supported for unknown initialization errors
+    return createError('WEBGPU_NOT_SUPPORTED', message, { cause });
+  }
+
+  /**
+   * Emit an error event. If no listeners are registered, log to console.warn.
+   */
+  private emitError(error: ScatterPlotError): void {
+    const hasListeners = this.emit('error', error);
+    if (!hasListeners) {
+      // eslint-disable-next-line no-console
+      console.warn('[scatter-anti]', `${error.code}: ${error.message}`);
     }
   }
 
@@ -136,15 +225,7 @@ export class ScatterPlot {
 
       // Load labels if URL is provided
       if (options.labels.url !== undefined) {
-        try {
-          const response = await fetch(options.labels.url);
-          if (response.ok) {
-            const labelData = await response.json();
-            this.loadLabels(labelData);
-          }
-        } catch {
-          // Silently ignore label loading errors
-        }
+        await this.loadLabelsFromUrl(options.labels.url);
       }
     }
 

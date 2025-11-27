@@ -12,6 +12,12 @@ export type {
   StringFilter,
   NumericOperator,
   StringOperator,
+  // Error handling types
+  ErrorSeverity,
+  ErrorCategory,
+  ErrorCode,
+  ScatterPlotError,
+  ScatterPlotEventMap,
 } from './types.js';
 
 export { diagnoseWebGPU } from './diagnostics.js';

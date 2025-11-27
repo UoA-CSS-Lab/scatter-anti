@@ -128,3 +128,53 @@ export interface ScatterPlotOptions {
   /** Interaction callbacks */
   interaction?: InteractionOptions;
 }
+
+/**
+ * Error handling types
+ */
+
+/** Error severity level */
+export type ErrorSeverity = 'fatal' | 'error' | 'warning';
+
+/** Error category */
+export type ErrorCategory = 'webgpu' | 'data' | 'label' | 'query' | 'network';
+
+/** Error codes for all possible errors */
+export type ErrorCode =
+  // WebGPU errors
+  | 'WEBGPU_NOT_SUPPORTED'
+  | 'GPU_ADAPTER_NOT_AVAILABLE'
+  | 'GPU_DEVICE_FAILED'
+  | 'WEBGPU_CONTEXT_FAILED'
+  // Data errors
+  | 'DATA_LAYER_NOT_INITIALIZED'
+  | 'PARQUET_LOAD_FAILED'
+  | 'QUERY_FAILED'
+  // Label errors
+  | 'LABEL_FETCH_FAILED'
+  | 'LABEL_PARSE_FAILED'
+  // Network errors
+  | 'NETWORK_ERROR';
+
+/** Error event payload */
+export interface ScatterPlotError {
+  /** Error code for programmatic handling */
+  code: ErrorCode;
+  /** Error category */
+  category: ErrorCategory;
+  /** Error severity */
+  severity: ErrorSeverity;
+  /** Human-readable error message */
+  message: string;
+  /** Original error object if available */
+  cause?: Error;
+  /** Additional context information */
+  context?: Record<string, unknown>;
+  /** Timestamp when error occurred */
+  timestamp: number;
+}
+
+/** Event map for ScatterPlot EventEmitter */
+export interface ScatterPlotEventMap {
+  error: ScatterPlotError;
+}
