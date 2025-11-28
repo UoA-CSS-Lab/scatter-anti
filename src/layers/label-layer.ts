@@ -153,8 +153,6 @@ export class LabelLayer {
     this.labelContext.textAlign = 'center';
     this.labelContext.textBaseline = 'middle';
 
-    let _renderedCount = 0;
-    let _skippedCount = 0;
     const renderedPositions: Array<{ x: number; y: number }> = [];
 
     // Render each label with density-based filtering
@@ -269,9 +267,6 @@ export class LabelLayer {
           });
 
           renderedPositions.push({ x: screenX, y: screenY });
-          _renderedCount++;
-        } else {
-          _skippedCount++;
         }
       }
     }

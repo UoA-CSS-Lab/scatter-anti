@@ -409,8 +409,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   /**
    * Destroy resources
    */
-  destroy(): void {
-    this.dataLayer.destroy();
+  async destroy(): Promise<void> {
+    await this.dataLayer.destroy();
     this.gpuLayer.destroy();
     this.labelLayer.destroy();
   }
