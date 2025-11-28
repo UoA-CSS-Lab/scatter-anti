@@ -38,6 +38,5 @@
     "typescript-eslint": "^8.48.0"
   },
   "dependencies": {
-    "sql-bricks": "^3.0.1"
   }
 }
