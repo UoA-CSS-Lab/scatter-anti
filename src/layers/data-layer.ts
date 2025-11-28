@@ -267,7 +267,7 @@ export class DataLayer {
         return;
       }
 
-      if (!data || data.rowCount === 0) {
+      if (!data) {
         return;
       }
 
@@ -470,7 +470,7 @@ export class DataLayer {
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
     });
 
-    if (!data || data.rowCount === 0) {
+    if (!data) {
       return null;
     }
 
