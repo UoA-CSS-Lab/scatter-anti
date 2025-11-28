@@ -138,9 +138,21 @@ export class DataLayer {
 
         const whereClause = whereConditions.join(' AND ');
 
-        return `SELECT x, y, (${this.sizeSql}) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data WHERE ${whereClause} LIMIT ${this.visiblePointLimit}`;
+        return `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data WHERE ${whereClause} LIMIT ${this.visiblePointLimit}`;
       },
     });
+  }
+
+  /**
+   * Execute a custom SQL query against the data
+   * Supports both string queries and objects with toString method
+   */
+  async executeQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
+    if (!this.repository) {
+      return undefined;
+    }
+    const queryObj = typeof query === 'string' ? { toString: () => query } : query;
+    return this.repository.query(queryObj);
   }
 
   /**
@@ -453,7 +465,7 @@ export class DataLayer {
 
     const data = await this.repository.query({
       toString: () =>
-        `SELECT *, (${this.sizeSql}) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
+        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
     });
 
     if (!data || data.rowCount === 0) {

@@ -423,7 +423,7 @@ export class GpuLayer {
    * Set zoom level
    */
   setZoom(zoom: number): void {
-    this.zoom = Math.max(0.1, Math.min(10, zoom)); // Clamp between 0.1x and 10x
+    this.zoom = Math.max(0.01, Math.min(100, zoom)); // Clamp between 0.01x and 100x
     this.updateUniforms();
   }
 
@@ -462,7 +462,7 @@ export class GpuLayer {
    */
   zoomToPoint(newZoom: number, screenX: number, screenY: number): void {
     // Clamp the new zoom level
-    const clampedZoom = Math.max(0.1, Math.min(10, newZoom));
+    const clampedZoom = Math.max(0.01, Math.min(100, newZoom));
 
     // Calculate aspect ratio for coordinate transformations
     const aspectRatio = this.canvas.width / this.canvas.height;
