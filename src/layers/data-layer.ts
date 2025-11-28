@@ -106,6 +106,8 @@ export class DataLayer {
   private buildWhereClauseString(condition: WhereCondition): string {
     if (condition.type === 'numeric') {
       return `${condition.column} ${condition.operator} ${condition.value}`;
+    } else if (condition.type === 'raw') {
+      return condition.sql;
     } else {
       // String filter - escape single quotes
       const escapedValue = condition.value.replace(/'/g, "''");

@@ -10,6 +10,7 @@ export type {
   WhereCondition,
   NumericFilter,
   StringFilter,
+  RawSqlFilter,
   NumericOperator,
   StringOperator,
   // Error handling types
