@@ -62,8 +62,14 @@ export interface StringFilter {
   value: string;
 }
 
+/** Raw SQL filter condition */
+export interface RawSqlFilter {
+  type: 'raw';
+  sql: string;
+}
+
 /** Union type for all WHERE conditions */
-export type WhereCondition = NumericFilter | StringFilter;
+export type WhereCondition = NumericFilter | StringFilter | RawSqlFilter;
 
 export interface DataOptions {
   /** Maximum number of visible points to render */
