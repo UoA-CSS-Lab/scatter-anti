@@ -485,13 +485,17 @@ export class DataLayer {
   /**
    * Cleanup resources
    */
-  destroy(): void {
+  async destroy(): Promise<void> {
     // Clear any pending throttled queries
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
 
-    // Note: repository cleanup is handled externally
+    // Close the repository connection
+    if (this.repository) {
+      await this.repository.close();
+      this.repository = null;
+    }
   }
 }
