@@ -28,3 +28,15 @@ updates:
       dependencies:
         patterns:
           - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/examples/next"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 50
+    labels:
+      - "dependencies"
+    groups:
+      dependencies:
+        patterns:
+          - "*"
