@@ -1,6 +1,6 @@
 {
   "name": "scatter-anti",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A TypeScript library for plotting scatter charts using WebGPU",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
