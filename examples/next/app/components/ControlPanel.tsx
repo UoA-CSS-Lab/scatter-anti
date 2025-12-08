@@ -3,6 +3,7 @@
 import { PointSizeSlider } from './PointSizeSlider';
 import { ColorExpressionInput } from './ColorExpressionInput';
 import { SearchBox } from './SearchBox';
+import { LabelFilterInput } from './LabelFilterInput';
 import { PointLimitSlider } from './PointLimitSlider';
 import { StatsDisplay } from './StatsDisplay';
 import { HoverControlPanel } from './HoverControlPanel';
@@ -18,6 +19,7 @@ export function ControlPanel() {
       <PointSizeSlider />
       <ColorExpressionInput />
       <SearchBox />
+      <LabelFilterInput />
       <HoverControlPanel />
     </div>
   );
