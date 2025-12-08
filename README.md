@@ -79,6 +79,7 @@ const plot = new ScatterPlot({
   },
   interaction?: {
     onPointHover?: PointHoverCallback,   // ポイントホバーコールバック
+    onLabelHover?: LabelHoverCallback,   // ラベルホバーコールバック
   },
 });
 
@@ -94,6 +95,26 @@ await plot.initialize();
 * `update(options)`: オプション更新
 * `runQuery(sql)`: カスタムSQLクエリ実行
 * `destroy()`: リソース解放
+
+**ホバー制御API:**
+
+外部コンポーネントからプログラム的にホバー状態を制御できます。
+
+* `setPointHover(pointId)`: ポイントをホバー状態に（`Promise<boolean>`）
+* `clearPointHover()`: ポイントホバー解除
+* `getHoveredPoint()`: ホバー中のポイント取得
+* `setLabelHover(identifier)`: ラベルをホバー状態に（`boolean`）
+* `clearLabelHover()`: ラベルホバー解除
+* `getHoveredLabel()`: ホバー中のラベル取得
+* `clearAllHover()`: 全ホバー解除
+
+```typescript
+// 使用例
+await plot.setPointHover(12345);           // IDでポイントをホバー
+plot.setLabelHover({ text: 'Cluster A' }); // テキストでラベルをホバー
+plot.setLabelHover({ cluster: 5 });        // クラスタ番号でラベルをホバー
+plot.clearAllHover();                      // 全ホバー解除
+```
 
 ## Examples
 

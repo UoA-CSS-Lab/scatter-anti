@@ -4,6 +4,20 @@
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
 export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
 
+/** Point identifier type (value from idColumn) */
+export type PointId = string | number;
+
+/** Label identifier for programmatic hover control */
+export interface LabelIdentifier {
+  /** Identify label by text */
+  text?: string;
+  /** Identify label by cluster number */
+  cluster?: number;
+}
+
+/** Callback fired when a label is hovered */
+export type LabelHoverCallback = (label: Label | null) => void;
+
 export interface ColorRGBA {
   r: number; // 0-1
   g: number; // 0-1
@@ -113,6 +127,8 @@ export interface LabelOptions {
 export interface InteractionOptions {
   /** Callback fired when a point is hovered */
   onPointHover?: PointHoverCallback;
+  /** Callback fired when a label is hovered */
+  onLabelHover?: LabelHoverCallback;
 }
 
 export interface ScatterPlotOptions {
