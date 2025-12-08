@@ -9,14 +9,21 @@ import {
   useEffect,
   type ReactNode,
 } from 'react';
-import type { ScatterPlot, WhereCondition } from 'scatter-anti';
+import type { ScatterPlot, WhereCondition, Label, PointId, LabelIdentifier } from 'scatter-anti';
 
 interface ScatterPlotState {
   isInitialized: boolean;
   isLoading: boolean;
   error: string | null;
   hoveredPoint: { row: unknown[]; columns: string[] } | null;
+  hoveredLabel: Label | null;
   pointCount: number | null;
+}
+
+export interface PointListItem {
+  id: string | number;
+  x: number;
+  y: number;
 }
 
 interface ScatterPlotContextValue {
@@ -27,6 +34,13 @@ interface ScatterPlotContextValue {
   updateColor: (colorSql: string) => Promise<void>;
   updateSearch: (searchText: string) => Promise<void>;
   updatePointLimit: (limit: number) => Promise<void>;
+  // Hover control
+  setPointHover: (pointId: PointId) => Promise<boolean>;
+  setLabelHover: (identifier: LabelIdentifier) => boolean;
+  clearAllHover: () => void;
+  // List data
+  fetchPoints: (page: number, pageSize: number) => Promise<PointListItem[]>;
+  getLabels: () => Label[];
 }
 
 const ScatterPlotContext = createContext<ScatterPlotContextValue | null>(null);
@@ -38,6 +52,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     isLoading: false,
     error: null,
     hoveredPoint: null,
+    hoveredLabel: null,
     pointCount: null,
   });
 
@@ -97,6 +112,9 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         interaction: {
           onPointHover: (data) => {
             setState((s) => ({ ...s, hoveredPoint: data }));
+          },
+          onLabelHover: (label) => {
+            setState((s) => ({ ...s, hoveredLabel: label }));
           },
         },
       });
@@ -201,6 +219,54 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     [buildWhereConditions]
   );
 
+  // Hover control methods
+  const setPointHover = useCallback(async (pointId: PointId): Promise<boolean> => {
+    if (!plotRef.current) return false;
+    return await plotRef.current.setPointHover(pointId);
+  }, []);
+
+  const setLabelHover = useCallback((identifier: LabelIdentifier): boolean => {
+    if (!plotRef.current) return false;
+    return plotRef.current.setLabelHover(identifier);
+  }, []);
+
+  const clearAllHover = useCallback(() => {
+    if (!plotRef.current) return;
+    plotRef.current.clearAllHover();
+  }, []);
+
+  // List data methods
+  const fetchPoints = useCallback(
+    async (page: number, pageSize: number): Promise<PointListItem[]> => {
+      if (!plotRef.current) return [];
+      const offset = page * pageSize;
+      const result = await plotRef.current.runQuery(
+        `SELECT __index_level_0__ as id, x, y FROM parquet_data ORDER BY __index_level_0__ LIMIT ${pageSize} OFFSET ${offset}`
+      );
+      if (!result || result.rowCount === 0) return [];
+
+      const idCol = result.columnData.get('id');
+      const xCol = result.columnData.get('x');
+      const yCol = result.columnData.get('y');
+
+      const points: PointListItem[] = [];
+      for (let i = 0; i < result.rowCount; i++) {
+        points.push({
+          id: idCol?.get(i),
+          x: xCol?.get(i),
+          y: yCol?.get(i),
+        });
+      }
+      return points;
+    },
+    []
+  );
+
+  const getLabels = useCallback((): Label[] => {
+    if (!plotRef.current) return [];
+    return plotRef.current.getLabels();
+  }, []);
+
   useEffect(() => {
     return () => {
       if (plotRef.current) {
@@ -220,6 +286,11 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         updateColor,
         updateSearch,
         updatePointLimit,
+        setPointHover,
+        setLabelHover,
+        clearAllHover,
+        fetchPoints,
+        getLabels,
       }}
     >
       {children}

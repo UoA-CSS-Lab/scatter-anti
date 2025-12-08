@@ -19,6 +19,11 @@ export type {
   ErrorCode,
   ScatterPlotError,
   ScatterPlotEventMap,
+  // Hover control types
+  PointId,
+  LabelIdentifier,
+  HoverSource,
+  LabelHoverCallback,
 } from './types.js';
 
 export { diagnoseWebGPU } from './diagnostics.js';
