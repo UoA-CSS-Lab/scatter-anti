@@ -1,23 +1,19 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useScatterPlot } from '../context/ScatterPlotContext';
-import type { Label } from 'scatter-anti';
 
 const PAGE_SIZE = 20;
 
 export function LabelList() {
   const { state, getLabels, setLabelHover } = useScatterPlot();
-  const [labels, setLabels] = useState<Label[]>([]);
   const [page, setPage] = useState(0);
 
   // Load and sort labels by count (descending)
-  useEffect(() => {
-    if (state.isInitialized) {
-      const allLabels = getLabels();
-      const sorted = [...allLabels].sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
-      setLabels(sorted);
-    }
+  const labels = useMemo(() => {
+    if (!state.isInitialized) return [];
+    const allLabels = getLabels();
+    return [...allLabels].sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
   }, [state.isInitialized, getLabels]);
 
   // Paginate labels
