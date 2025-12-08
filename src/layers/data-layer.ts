@@ -502,8 +502,7 @@ export class DataLayer {
     }
 
     // Escape string values, use numbers directly
-    const escapedId =
-      typeof pointId === 'string' ? `'${pointId.replace(/'/g, "''")}'` : pointId;
+    const escapedId = typeof pointId === 'string' ? `'${pointId.replace(/'/g, "''")}'` : pointId;
 
     const data = await this.repository.query({
       toString: () =>

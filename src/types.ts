@@ -15,11 +15,8 @@ export interface LabelIdentifier {
   cluster?: number;
 }
 
-/** Source of hover state change */
-export type HoverSource = 'user' | 'api';
-
 /** Callback fired when a label is hovered */
-export type LabelHoverCallback = (label: Label | null, source: HoverSource) => void;
+export type LabelHoverCallback = (label: Label | null) => void;
 
 export interface ColorRGBA {
   r: number; // 0-1

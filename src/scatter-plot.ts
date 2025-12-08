@@ -434,7 +434,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       return false;
     }
 
-    this.labelLayer.setHoveredPoint(pointData, 'api');
+    this.labelLayer.setHoveredPoint(pointData);
     return true;
   }
 
@@ -442,7 +442,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * Clear the point hover state
    */
   clearPointHover(): void {
-    this.labelLayer.setHoveredPoint(null, 'api');
+    this.labelLayer.setHoveredPoint(null);
   }
 
   /**
@@ -464,7 +464,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       return false;
     }
 
-    this.labelLayer.setHoveredLabel(label, 'api');
+    this.labelLayer.setHoveredLabel(label);
     return true;
   }
 
@@ -472,7 +472,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * Clear the label hover state
    */
   clearLabelHover(): void {
-    this.labelLayer.setHoveredLabel(null, 'api');
+    this.labelLayer.setHoveredLabel(null);
   }
 
   /**
@@ -487,8 +487,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * Clear all hover states (both point and label)
    */
   clearAllHover(): void {
-    this.labelLayer.setHoveredPoint(null, 'api');
-    this.labelLayer.setHoveredLabel(null, 'api');
+    this.labelLayer.setHoveredPoint(null);
+    this.labelLayer.setHoveredLabel(null);
   }
 
   /**

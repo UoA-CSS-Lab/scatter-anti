@@ -22,7 +22,6 @@ export type {
   // Hover control types
   PointId,
   LabelIdentifier,
-  HoverSource,
   LabelHoverCallback,
 } from './types.js';
 

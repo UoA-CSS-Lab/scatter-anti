@@ -3,7 +3,6 @@ import type {
   LabelFilterLambda,
   PointHoverCallback,
   HoverOutlineOptions,
-  HoverSource,
   LabelIdentifier,
   LabelHoverCallback,
 } from '../types.js';
@@ -413,7 +412,7 @@ export class LabelLayer {
         this.hoveredLabel = labelAtPosition;
         // Fire callback
         if (this.onLabelHover) {
-          this.onLabelHover(this.hoveredLabel, 'user');
+          this.onLabelHover(this.hoveredLabel);
         }
         // Re-render immediately to show hover effect
         this.render();
@@ -489,7 +488,7 @@ export class LabelLayer {
 
       // Fire callback for label unhover
       if (hadLabel && this.onLabelHover) {
-        this.onLabelHover(null, 'user');
+        this.onLabelHover(null);
       }
 
       // Fire callback for point unhover
@@ -573,9 +572,8 @@ export class LabelLayer {
   /**
    * Programmatically set the hovered point
    * @param data Point data to hover, or null to clear
-   * @param source Source of the hover change
    */
-  setHoveredPoint(data: { row: any[]; columns: string[] } | null, source: HoverSource): void {
+  setHoveredPoint(data: { row: any[]; columns: string[] } | null): void {
     if (data === this.hoveredPoint) {
       return;
     }
@@ -592,9 +590,8 @@ export class LabelLayer {
   /**
    * Programmatically set the hovered label
    * @param label Label to hover, or null to clear
-   * @param source Source of the hover change
    */
-  setHoveredLabel(label: Label | null, source: HoverSource): void {
+  setHoveredLabel(label: Label | null): void {
     if (label === this.hoveredLabel) {
       return;
     }
@@ -602,7 +599,7 @@ export class LabelLayer {
 
     // Fire callback
     if (this.onLabelHover) {
-      this.onLabelHover(this.hoveredLabel, source);
+      this.onLabelHover(this.hoveredLabel);
     }
 
     this.render();
