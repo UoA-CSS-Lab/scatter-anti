@@ -34,6 +34,7 @@ interface ScatterPlotContextValue {
   updateColor: (colorSql: string) => Promise<void>;
   updateSearch: (searchText: string) => Promise<void>;
   updatePointLimit: (limit: number) => Promise<void>;
+  updateLabelFilter: (searchText: string) => void;
   // Hover control
   setPointHover: (pointId: PointId) => Promise<boolean>;
   setLabelHover: (identifier: LabelIdentifier) => boolean;
@@ -235,6 +236,28 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     plotRef.current.clearAllHover();
   }, []);
 
+  const updateLabelFilter = useCallback((searchText: string) => {
+    if (!plotRef.current) return;
+    if (searchText.trim() === '') {
+      plotRef.current.update({
+        labels: {
+          filterLambda: undefined,
+        },
+      });
+    } else {
+      const lowerSearch = searchText.toLowerCase();
+      plotRef.current.update({
+        labels: {
+          filterLambda: (properties) => {
+            const label = (properties.cluster_label as string) || '';
+            return label.toLowerCase().includes(lowerSearch);
+          },
+        },
+      });
+    }
+    plotRef.current.render();
+  }, []);
+
   // List data methods
   const fetchPoints = useCallback(
     async (page: number, pageSize: number): Promise<PointListItem[]> => {
@@ -286,6 +309,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         updateColor,
         updateSearch,
         updatePointLimit,
+        updateLabelFilter,
         setPointHover,
         setLabelHover,
         clearAllHover,

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import type { Label } from 'scatter-anti';
 import { useScatterPlot } from '../context/ScatterPlotContext';
 
 const PAGE_SIZE = 20;

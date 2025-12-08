@@ -160,14 +160,25 @@ export class LabelLayer {
 
     const renderedPositions: Array<{ x: number; y: number }> = [];
 
-    // Render each label with density-based filtering
-    for (const label of this.labels) {
-      // Apply filterLambda first (before viewport/collision checks)
-      let passedFilter = true;
-      if (this.filterLambda && label.properties) {
-        passedFilter = this.filterLambda(label.properties);
-      }
+    // Pre-compute filter results and sort by filter status
+    // Filter-passing labels are rendered first to get priority in collision detection
+    const labelsWithFilter = this.labels.map((label) => ({
+      label,
+      passedFilter:
+        this.filterLambda && label.properties ? this.filterLambda(label.properties) : true,
+    }));
 
+    // Sort: filter-passing labels first, then non-passing labels
+    // Within each group, original order (by count) is preserved
+    labelsWithFilter.sort((a, b) => {
+      if (a.passedFilter !== b.passedFilter) {
+        return a.passedFilter ? -1 : 1;
+      }
+      return 0;
+    });
+
+    // Render each label with density-based filtering
+    for (const { label, passedFilter } of labelsWithFilter) {
       // Transform label position using view matrix
       const worldX = label.x;
       const worldY = label.y;
