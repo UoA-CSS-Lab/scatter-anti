@@ -25,6 +25,7 @@ export function PointList() {
 
   useEffect(() => {
     if (state.isInitialized) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- async data fetching pattern
       loadPage(page);
     }
   }, [state.isInitialized, page, loadPage]);

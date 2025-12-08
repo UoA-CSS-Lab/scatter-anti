@@ -147,7 +147,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         }));
       }
     },
-    [buildWhereConditions]
+    []
   );
 
   const updateSize = useCallback(
