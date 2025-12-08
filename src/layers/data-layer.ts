@@ -1,6 +1,6 @@
 import type { ParquetData, ParquetReader } from '../repository.js';
 import { createParquetReader } from '../repository.js';
-import type { WhereCondition, ScatterPlotError } from '../types.js';
+import type { WhereCondition, ScatterPlotError, PointId } from '../types.js';
 import { createError } from '../errors.js';
 
 export interface DataLayerOptions {
@@ -471,6 +471,45 @@ export class DataLayer {
     });
 
     if (!data) {
+      return null;
+    }
+
+    // Extract first row
+    const row: any[] = new Array(data.columns.length);
+    for (let j = 0; j < data.columns.length; j++) {
+      const column = data.columnData.get(data.columns[j]);
+      row[j] = column?.get(0);
+    }
+
+    return { row, columns: data.columns };
+  }
+
+  /**
+   * Check if the data layer is initialized
+   */
+  isInitialized(): boolean {
+    return this.repository !== null;
+  }
+
+  /**
+   * Find a point by its ID (idColumn value)
+   * @param pointId The value of the idColumn for the point to find
+   * @returns Point data if found, null otherwise
+   */
+  async findPointById(pointId: PointId): Promise<{ row: any[]; columns: string[] } | null> {
+    if (!this.repository) {
+      return null;
+    }
+
+    // Escape string values, use numbers directly
+    const escapedId = typeof pointId === 'string' ? `'${pointId.replace(/'/g, "''")}'` : pointId;
+
+    const data = await this.repository.query({
+      toString: () =>
+        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${escapedId}`,
+    });
+
+    if (!data || data.rowCount === 0) {
       return null;
     }
 

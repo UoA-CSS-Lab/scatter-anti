@@ -1,4 +1,11 @@
-import type { Label, ScatterPlotOptions, ScatterPlotEventMap, ScatterPlotError } from './types.js';
+import type {
+  Label,
+  ScatterPlotOptions,
+  ScatterPlotEventMap,
+  ScatterPlotError,
+  PointId,
+  LabelIdentifier,
+} from './types.js';
 import { DataLayer } from './layers/data-layer.js';
 import { GpuLayer } from './layers/gpu-layer.js';
 import { LabelLayer } from './layers/label-layer.js';
@@ -63,6 +70,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       filterLambda: options.labels?.filterLambda,
       onLabelClick: options.labels?.onClick,
       onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
+      onLabelHover: options.interaction?.onLabelHover,
       hoverOutlineOptions: options.labels?.hoverOutlineOptions,
       dataLayer: this.dataLayer,
     });
@@ -233,6 +241,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     if (options.interaction !== undefined) {
       this.labelLayer.updateOptions({
         onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
+        onLabelHover: options.interaction.onLabelHover,
       });
     }
 
@@ -404,6 +413,82 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
   getLabels(): Label[] {
     return this.labelLayer.getLabels();
+  }
+
+  // ============================================
+  // Programmatic Hover Control API
+  // ============================================
+
+  /**
+   * Programmatically set a point as hovered by its ID
+   * @param pointId The value of the idColumn for the point to hover
+   * @returns true if point was found and hovered, false otherwise
+   */
+  async setPointHover(pointId: PointId): Promise<boolean> {
+    if (!this.dataLayer.isInitialized()) {
+      return false;
+    }
+
+    const pointData = await this.dataLayer.findPointById(pointId);
+    if (!pointData) {
+      return false;
+    }
+
+    this.labelLayer.setHoveredPoint(pointData);
+    return true;
+  }
+
+  /**
+   * Clear the point hover state
+   */
+  clearPointHover(): void {
+    this.labelLayer.setHoveredPoint(null);
+  }
+
+  /**
+   * Get the currently hovered point data
+   * @returns Point data if hovering, null otherwise
+   */
+  getHoveredPoint(): { row: any[]; columns: string[] } | null {
+    return this.labelLayer.getHoveredPoint();
+  }
+
+  /**
+   * Programmatically set a label as hovered
+   * @param identifier Label identifier (by text or cluster)
+   * @returns true if label was found and hovered, false otherwise
+   */
+  setLabelHover(identifier: LabelIdentifier): boolean {
+    const label = this.labelLayer.findLabel(identifier);
+    if (!label) {
+      return false;
+    }
+
+    this.labelLayer.setHoveredLabel(label);
+    return true;
+  }
+
+  /**
+   * Clear the label hover state
+   */
+  clearLabelHover(): void {
+    this.labelLayer.setHoveredLabel(null);
+  }
+
+  /**
+   * Get the currently hovered label
+   * @returns Label if hovering, null otherwise
+   */
+  getHoveredLabel(): Label | null {
+    return this.labelLayer.getHoveredLabel();
+  }
+
+  /**
+   * Clear all hover states (both point and label)
+   */
+  clearAllHover(): void {
+    this.labelLayer.setHoveredPoint(null);
+    this.labelLayer.setHoveredLabel(null);
   }
 
   /**

@@ -5,6 +5,7 @@ import { ColorExpressionInput } from './ColorExpressionInput';
 import { SearchBox } from './SearchBox';
 import { PointLimitSlider } from './PointLimitSlider';
 import { StatsDisplay } from './StatsDisplay';
+import { HoverControlPanel } from './HoverControlPanel';
 
 export function ControlPanel() {
   return (
@@ -17,6 +18,7 @@ export function ControlPanel() {
       <PointSizeSlider />
       <ColorExpressionInput />
       <SearchBox />
+      <HoverControlPanel />
     </div>
   );
 }

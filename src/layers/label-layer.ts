@@ -3,6 +3,8 @@ import type {
   LabelFilterLambda,
   PointHoverCallback,
   HoverOutlineOptions,
+  LabelIdentifier,
+  LabelHoverCallback,
 } from '../types.js';
 import type { DataLayer } from './data-layer.js';
 
@@ -13,6 +15,7 @@ export interface LabelLayerOptions {
   filterLambda?: LabelFilterLambda;
   onLabelClick?: (label: Label) => void;
   onPointHover?: PointHoverCallback;
+  onLabelHover?: LabelHoverCallback;
   hoverOutlineOptions?: HoverOutlineOptions;
   dataLayer?: DataLayer;
   outlinedPointAddition?: number;
@@ -57,6 +60,7 @@ export class LabelLayer {
 
   // Point hover state
   private onPointHover?: PointHoverCallback;
+  private onLabelHover?: LabelHoverCallback;
   private hoveredPoint: { row: any[]; columns: string[] } | null = null;
   private hoverOutlineOptions: HoverOutlineOptions;
   private readonly dataLayer: DataLayer | null = null;
@@ -69,6 +73,7 @@ export class LabelLayer {
     this.filterLambda = options.filterLambda;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
+    this.onLabelHover = options.onLabelHover;
     this.dataLayer = options.dataLayer ?? null;
     this.hoverOutlineOptions = {
       enabled: options.hoverOutlineOptions?.enabled ?? true,
@@ -405,6 +410,10 @@ export class LabelLayer {
       // Update label hover state
       if (labelAtPosition !== this.hoveredLabel) {
         this.hoveredLabel = labelAtPosition;
+        // Fire callback
+        if (this.onLabelHover) {
+          this.onLabelHover(this.hoveredLabel);
+        }
         // Re-render immediately to show hover effect
         this.render();
       }
@@ -471,11 +480,19 @@ export class LabelLayer {
 
     // Mouse leave parent - reset hover state
     parent.addEventListener('mouseleave', () => {
+      const hadLabel = this.hoveredLabel !== null;
+      const hadPoint = this.hoveredPoint !== null;
+
       this.hoveredLabel = null;
       this.hoveredPoint = null;
 
+      // Fire callback for label unhover
+      if (hadLabel && this.onLabelHover) {
+        this.onLabelHover(null);
+      }
+
       // Fire callback for point unhover
-      if (this.onPointHover) {
+      if (hadPoint && this.onPointHover) {
         this.onPointHover(null);
       }
 
@@ -531,6 +548,9 @@ export class LabelLayer {
     if (options.onPointHover !== undefined) {
       this.onPointHover = options.onPointHover;
     }
+    if (options.onLabelHover !== undefined) {
+      this.onLabelHover = options.onLabelHover;
+    }
     if (options.hoverOutlineOptions !== undefined) {
       this.hoverOutlineOptions = {
         enabled: options.hoverOutlineOptions.enabled ?? this.hoverOutlineOptions.enabled,
@@ -547,6 +567,73 @@ export class LabelLayer {
 
   getLabels(): Label[] {
     return this.labels;
+  }
+
+  /**
+   * Programmatically set the hovered point
+   * @param data Point data to hover, or null to clear
+   */
+  setHoveredPoint(data: { row: any[]; columns: string[] } | null): void {
+    if (data === this.hoveredPoint) {
+      return;
+    }
+    this.hoveredPoint = data;
+
+    // Fire callback
+    if (this.onPointHover) {
+      this.onPointHover(this.hoveredPoint);
+    }
+
+    this.render();
+  }
+
+  /**
+   * Programmatically set the hovered label
+   * @param label Label to hover, or null to clear
+   */
+  setHoveredLabel(label: Label | null): void {
+    if (label === this.hoveredLabel) {
+      return;
+    }
+    this.hoveredLabel = label;
+
+    // Fire callback
+    if (this.onLabelHover) {
+      this.onLabelHover(this.hoveredLabel);
+    }
+
+    this.render();
+  }
+
+  /**
+   * Find a label by identifier (text or cluster)
+   * @param identifier Label identifier
+   * @returns Label if found, null otherwise
+   */
+  findLabel(identifier: LabelIdentifier): Label | null {
+    for (const label of this.labels) {
+      if (identifier.text !== undefined && label.text === identifier.text) {
+        return label;
+      }
+      if (identifier.cluster !== undefined && label.cluster === identifier.cluster) {
+        return label;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get the currently hovered point
+   */
+  getHoveredPoint(): { row: any[]; columns: string[] } | null {
+    return this.hoveredPoint;
+  }
+
+  /**
+   * Get the currently hovered label
+   */
+  getHoveredLabel(): Label | null {
+    return this.hoveredLabel;
   }
 
   /**
