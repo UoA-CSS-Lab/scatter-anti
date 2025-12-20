@@ -1,11 +1,11 @@
 /**
- * Event handler function type
+ * イベントハンドラー関数の型
  */
 export type EventHandler<T = unknown> = (event: T) => void;
 
 /**
- * Lightweight EventEmitter implementation for browser environments.
- * Provides type-safe event handling without external dependencies.
+ * ブラウザ環境向けの軽量なEventEmitter実装
+ * 外部依存なしで型安全なイベントハンドリングを提供する
  *
  * @example
  * ```typescript
@@ -25,61 +25,70 @@ export type EventHandler<T = unknown> = (event: T) => void;
  * ```
  */
 export class EventEmitter<T extends { [K in keyof T]: unknown }> {
+  /** イベント名からハンドラーのセットへのマップ */
   private listeners = new Map<keyof T, Set<EventHandler<any>>>();
 
   /**
-   * Register an event handler for the specified event.
+   * 指定されたイベントに対してハンドラーを登録する
    *
-   * @param event - The event name to listen for
-   * @param handler - The handler function to call when the event is emitted
-   * @returns this instance for chaining
+   * @param event リッスンするイベント名
+   * @param handler イベント発生時に呼び出されるハンドラー関数
+   * @returns メソッドチェーン用のthisインスタンス
    */
   on<K extends keyof T>(event: K, handler: EventHandler<T[K]>): this {
+    // イベント名に対応するセットがなければ新規作成
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
+    // ハンドラーをセットに追加
     this.listeners.get(event)!.add(handler);
     return this;
   }
 
   /**
-   * Remove an event handler for the specified event.
+   * 指定されたイベントからハンドラーを削除する
    *
-   * @param event - The event name
-   * @param handler - The handler function to remove
-   * @returns this instance for chaining
+   * @param event イベント名
+   * @param handler 削除するハンドラー関数
+   * @returns メソッドチェーン用のthisインスタンス
    */
   off<K extends keyof T>(event: K, handler: EventHandler<T[K]>): this {
+    // セットからハンドラーを削除
     this.listeners.get(event)?.delete(handler);
     return this;
   }
 
   /**
-   * Emit an event to all registered handlers.
+   * 登録されたすべてのハンドラーにイベントを発行する
    *
-   * @param event - The event name to emit
-   * @param data - The event data to pass to handlers
-   * @returns true if there were listeners, false otherwise
+   * @param event 発行するイベント名
+   * @param data ハンドラーに渡すイベントデータ
+   * @returns リスナーがあればtrue、なければfalse
    */
   protected emit<K extends keyof T>(event: K, data: T[K]): boolean {
+    // イベントに対応するハンドラーを取得
     const handlers = this.listeners.get(event);
+    // ハンドラーがない場合はfalseを返す
     if (!handlers || handlers.size === 0) {
       return false;
     }
+    // 各ハンドラーを呼び出す
     handlers.forEach((handler) => handler(data));
     return true;
   }
 
   /**
-   * Remove all listeners for a specific event, or all events if no event is specified.
+   * 指定されたイベント、またはすべてのイベントのリスナーを削除する
    *
-   * @param event - Optional event name. If omitted, all listeners are removed.
-   * @returns this instance for chaining
+   * @param event イベント名（省略時はすべてのリスナーを削除）
+   * @returns メソッドチェーン用のthisインスタンス
    */
   removeAllListeners(event?: keyof T): this {
     if (event) {
+      // 特定のイベントのリスナーを削除
       this.listeners.delete(event);
     } else {
+      // すべてのリスナーをクリア
       this.listeners.clear();
     }
     return this;

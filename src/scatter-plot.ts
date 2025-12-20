@@ -15,18 +15,18 @@ import { EventEmitter } from './event-emitter.js';
 import { createError } from './errors.js';
 
 /**
- * Main ScatterPlot class for rendering scatter plots using WebGPU
+ * WebGPUを使用して散布図を描画するメインクラス
  *
- * This class acts as a facade/coordinator for three distinct layers:
- * - DataLayer: Handles data acquisition and query management
- * - GpuLayer: Manages WebGPU rendering and transformations
- * - LabelLayer: Handles 2D canvas overlay for labels
+ * このクラスは3つの異なるレイヤーのファサード/コーディネーターとして機能する:
+ * - DataLayer: データ取得とクエリ管理を担当
+ * - GpuLayer: WebGPUレンダリングと変換を管理
+ * - LabelLayer: ラベル用の2Dキャンバスオーバーレイを担当
  *
  * @example
  * ```typescript
  * const plot = new ScatterPlot({ ... });
  *
- * // Listen for errors
+ * // エラーをリッスン
  * plot.on('error', (error) => {
  *   if (error.severity === 'fatal') {
  *     showErrorModal(error.message);
@@ -37,19 +37,23 @@ import { createError } from './errors.js';
  * ```
  */
 export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
-  // Three distinct layers
+  // 3つの異なるレイヤー
   private readonly dataLayer: DataLayer;
   private gpuLayer: GpuLayer;
   private labelLayer: LabelLayer;
 
-  // Configuration
+  // 設定
   private readonly dataUrl: string;
   private readonly labelUrl?: string;
 
+  /**
+   * ScatterPlotインスタンスを作成する
+   * @param options 散布図の設定オプション
+   */
   constructor(options: ScatterPlotOptions) {
     super();
 
-    // Initialize the three layers
+    // データレイヤーを初期化（Parquetデータの読み込みとクエリを担当）
     this.dataLayer = new DataLayer({
       visiblePointLimit: options.data.visiblePointLimit,
       sizeSql: options.data.sizeSql,
@@ -59,11 +63,13 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       onError: (error) => this.emitError(error),
     });
 
+    // GPUレイヤーを初期化（WebGPUレンダリングを担当）
     this.gpuLayer = new GpuLayer({
       canvas: options.canvas,
       backgroundColor: options.gpu?.backgroundColor,
     });
 
+    // ラベルレイヤーを初期化（2Dキャンバスでのラベル描画を担当）
     this.labelLayer = new LabelLayer({
       canvas: options.canvas,
       labelFontSize: options.labels?.fontSize,
@@ -75,44 +81,48 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       dataLayer: this.dataLayer,
     });
 
-    // Store URLs for auto-fetch during initialization
+    // 初期化時の自動フェッチ用にURLを保存
     this.dataUrl = options.dataUrl;
     this.labelUrl = options.labels?.url;
   }
 
   /**
-   * Initialize WebGPU and create rendering resources
+   * WebGPUを初期化し、レンダリングリソースを作成する
    */
   async initialize(): Promise<void> {
     try {
-      // Get the actual canvas aspect ratio for initial data load
+      // 初期データ読み込み用にキャンバスのアスペクト比を取得
       const aspectRatio = this.gpuLayer.getAspectRatio();
+      // データレイヤーを初期化し、初期データをParquetファイルから読み込む
       const initialData = await this.dataLayer.initialize(this.dataUrl, aspectRatio);
 
-      // 2. Initialize GPU layer with initial data
+      // GPUレイヤーを初期データで初期化
       await this.gpuLayer.initialize(initialData);
 
-      // 3. Initialize label layer (creates canvas overlay)
+      // ラベルレイヤーを初期化（キャンバスオーバーレイを作成）
       this.labelLayer.initialize();
     } catch (e) {
-      // Emit error event instead of throwing
+      // 例外をスローせず、エラーイベントを発行する
       const error = this.categorizeInitError(e);
       this.emitError(error);
       return;
     }
 
-    // 4. Auto-fetch labels if labelUrl is provided
+    // labelUrlが指定されている場合、ラベルを自動フェッチ
     if (this.labelUrl) {
       await this.loadLabelsFromUrl(this.labelUrl);
     }
   }
 
   /**
-   * Load labels from URL with error handling
+   * URLからラベルデータを読み込み、エラーハンドリングを行う
+   * @param url ラベルデータのURL
    */
   private async loadLabelsFromUrl(url: string): Promise<void> {
     try {
+      // 指定されたURLからラベルデータをフェッチ
       const response = await fetch(url);
+      // HTTPステータスコードが成功でない場合はエラーを発行
       if (!response.ok) {
         this.emitError(
           createError(
@@ -125,10 +135,14 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         );
         return;
       }
+      // レスポンスをJSONとしてパース
       const labelData = await response.json();
+      // ラベルをラベルレイヤーに読み込む
       this.loadLabels(labelData);
+      // ラベルデータをデータレイヤーにも読み込む（クエリ用）
       await this.dataLayer.loadLabelData(labelData);
     } catch (e) {
+      // ネットワークエラーの場合はエラーイベントを発行
       this.emitError(
         createError('LABEL_FETCH_FAILED', 'Network error while fetching labels', {
           cause: e instanceof Error ? e : undefined,
@@ -139,12 +153,16 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
-   * Categorize an initialization error into a ScatterPlotError
+   * 初期化エラーをScatterPlotError型に分類する
+   * @param e 発生した例外
+   * @returns 分類されたScatterPlotErrorオブジェクト
    */
   private categorizeInitError(e: unknown): ScatterPlotError {
+    // エラーメッセージと原因を抽出
     const message = e instanceof Error ? e.message : String(e);
     const cause = e instanceof Error ? e : undefined;
 
+    // エラーメッセージの内容に基づいてエラーコードを決定
     if (message.includes('WebGPU is not supported')) {
       return createError('WEBGPU_NOT_SUPPORTED', message, { cause });
     }
@@ -164,15 +182,18 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       return createError('PARQUET_LOAD_FAILED', message, { cause });
     }
 
-    // Default to WebGPU not supported for unknown initialization errors
+    // 不明な初期化エラーの場合はWebGPU未サポートとして扱う
     return createError('WEBGPU_NOT_SUPPORTED', message, { cause });
   }
 
   /**
-   * Emit an error event. If no listeners are registered, log to console.warn.
+   * エラーイベントを発行する。リスナーが登録されていない場合はconsole.warnに出力する
+   * @param error 発行するエラーオブジェクト
    */
   private emitError(error: ScatterPlotError): void {
+    // errorイベントを発行し、リスナーの有無を確認
     const hasListeners = this.emit('error', error);
+    // リスナーがいない場合はコンソールに警告を出力
     if (!hasListeners) {
       // eslint-disable-next-line no-console
       console.warn('[scatter-anti]', `${error.code}: ${error.message}`);
@@ -180,32 +201,34 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
-   * Render the scatter plot (both GPU and labels)
+   * 散布図をレンダリングする（GPUレイヤーとラベルの両方）
    */
   render(): void {
-    // Render GPU layer first
+    // まずGPUレイヤーをレンダリング（WebGPUで点を描画）
     this.gpuLayer.render();
 
-    // Render labels on top
+    // その上にラベルをレンダリング（2Dキャンバスでテキストを描画）
     this.labelLayer.render();
   }
 
   /**
-   * Load labels from GeoJSON data
-   * @param geojsonData GeoJSON FeatureCollection with label points
+   * GeoJSONデータからラベルを読み込む
+   * @param geojsonData ラベルポイントを含むGeoJSON FeatureCollection
    */
   loadLabels(geojsonData: any): void {
+    // GeoJSONデータをラベルレイヤーに渡す
     this.labelLayer.loadLabels(geojsonData);
 
-    // Re-render to show new labels
+    // 新しいラベルを表示するために再レンダリング
     this.render();
   }
 
   /**
-   * Update plot data and re-render
+   * プロットデータを更新して再レンダリングする
+   * @param options 更新する設定オプション
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
-    // Update data layer
+    // データレイヤーの設定を更新
     if (options.data !== undefined) {
       this.dataLayer.updateOptions({
         sizeSql: options.data.sizeSql,
@@ -215,14 +238,14 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       });
     }
 
-    // Update GPU layer
+    // GPUレイヤーの設定を更新
     if (options.gpu !== undefined) {
       this.gpuLayer.updateOptions({
         backgroundColor: options.gpu.backgroundColor,
       });
     }
 
-    // Update label layer
+    // ラベルレイヤーの設定を更新
     if (options.labels !== undefined) {
       this.labelLayer.updateOptions({
         labelFontSize: options.labels.fontSize,
@@ -231,13 +254,13 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         hoverOutlineOptions: options.labels.hoverOutlineOptions,
       });
 
-      // Load labels if URL is provided
+      // URLが指定されている場合はラベルを読み込む
       if (options.labels.url !== undefined) {
         await this.loadLabelsFromUrl(options.labels.url);
       }
     }
 
-    // Update interaction callbacks
+    // インタラクションコールバックを更新
     if (options.interaction !== undefined) {
       this.labelLayer.updateOptions({
         onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
@@ -245,258 +268,298 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       });
     }
 
+    // 新しい表示範囲のデータ更新をスケジュール
     this.scheduleDataUpdate();
   }
 
   /**
-   * Resize canvas and re-render
+   * キャンバスをリサイズして再レンダリングする
+   * @param width 新しい幅（ピクセル）
+   * @param height 新しい高さ（ピクセル）
    */
   resize(width: number, height: number): void {
+    // GPUレイヤーのキャンバスサイズを更新
     this.gpuLayer.resize(width, height);
+    // ラベルレイヤーのキャンバスサイズを更新
     this.labelLayer.resize(width, height);
+    // 新しいサイズで再レンダリング
     this.render();
   }
 
   /**
-   * Set zoom level
-   * @param zoom Zoom level (1.0 = normal, >1.0 = zoom in, <1.0 = zoom out)
+   * ズームレベルを設定する
+   * @param zoom ズームレベル（1.0 = 通常、>1.0 = ズームイン、<1.0 = ズームアウト）
    */
   setZoom(zoom: number): void {
+    // GPUレイヤーのズームを更新
     this.gpuLayer.setZoom(zoom);
 
-    // Update label layer with new view transform
+    // ラベルレイヤーのビュー変換を更新
     const pan = this.gpuLayer.getPan();
     this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
 
-    // Immediate render (lightweight)
+    // 即座にレンダリング（軽量処理）
     this.render();
 
-    // Schedule query for new visible points (throttled)
+    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
     this.scheduleDataUpdate();
   }
 
   /**
-   * Get current zoom level
+   * 現在のズームレベルを取得する
+   * @returns 現在のズームレベル
    */
   getZoom(): number {
     return this.gpuLayer.getZoom();
   }
 
   /**
-   * Zoom in by a factor
-   * @param factor Zoom factor (default: 1.2)
+   * 指定した倍率でズームインする
+   * @param factor ズーム倍率（デフォルト: 1.2）
    */
   zoomIn(factor: number = 1.2): void {
+    // 現在のズームレベルに倍率を掛ける
     this.setZoom(this.gpuLayer.getZoom() * factor);
   }
 
   /**
-   * Zoom out by a factor
-   * @param factor Zoom factor (default: 1.2)
+   * 指定した倍率でズームアウトする
+   * @param factor ズーム倍率（デフォルト: 1.2）
    */
   zoomOut(factor: number = 1.2): void {
+    // 現在のズームレベルを倍率で割る
     this.setZoom(this.gpuLayer.getZoom() / factor);
   }
 
   /**
-   * Zoom to a specific point (zoom centered on a screen coordinate)
-   * @param newZoom New zoom level
-   * @param screenX Screen X coordinate (in canvas pixels)
-   * @param screenY Screen Y coordinate (in canvas pixels)
+   * 指定した画面座標を中心にズームする
+   * @param newZoom 新しいズームレベル
+   * @param screenX 画面X座標（キャンバスピクセル単位）
+   * @param screenY 画面Y座標（キャンバスピクセル単位）
    */
   zoomToPoint(newZoom: number, screenX: number, screenY: number): void {
+    // GPUレイヤーで指定座標を中心にズーム処理
     this.gpuLayer.zoomToPoint(newZoom, screenX, screenY);
 
-    // Update label layer with new view transform
+    // ラベルレイヤーのビュー変換を更新
     const pan = this.gpuLayer.getPan();
     this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
 
-    // Immediate render (lightweight)
+    // 即座にレンダリング（軽量処理）
     this.render();
 
-    // Schedule query for new visible points (throttled)
+    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
     this.scheduleDataUpdate();
   }
 
   /**
-   * Reset zoom and pan to default
+   * ズームとパンをデフォルト値にリセットする
    */
   resetView(): void {
+    // ズームを1.0（初期値）に設定
     this.gpuLayer.setZoom(1.0);
+    // パンを原点(0, 0)に設定
     this.gpuLayer.setPan(0.0, 0.0);
 
-    // Update label layer with new view transform
+    // ラベルレイヤーのビュー変換を初期値に更新
     this.labelLayer.updateViewTransform(1.0, 0.0, 0.0);
 
-    // Immediate render (lightweight)
+    // 即座にレンダリング（軽量処理）
     this.render();
 
-    // Schedule query for new visible points (throttled)
+    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
     this.scheduleDataUpdate();
   }
 
   /**
-   * Set pan offset
-   * @param x Pan X offset in normalized coordinates (-1 to 1)
-   * @param y Pan Y offset in normalized coordinates (-1 to 1)
+   * パンオフセットを設定する
+   * @param x 正規化座標でのX方向パンオフセット（-1から1）
+   * @param y 正規化座標でのY方向パンオフセット（-1から1）
    */
   setPan(x: number, y: number): void {
+    // GPUレイヤーのパンを更新
     this.gpuLayer.setPan(x, y);
 
-    // Update label layer with new view transform
+    // ラベルレイヤーのビュー変換を更新
     this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), x, y);
 
-    // Immediate render (lightweight)
+    // 即座にレンダリング（軽量処理）
     this.render();
 
-    // Schedule query for new visible points (throttled)
+    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
     this.scheduleDataUpdate();
   }
 
   /**
-   * Get current pan offset
+   * 現在のパンオフセットを取得する
+   * @returns x, y座標を含むオブジェクト
    */
   getPan(): { x: number; y: number } {
     return this.gpuLayer.getPan();
   }
 
   /**
-   * Pan by a delta amount
-   * @param dx Delta X in normalized coordinates
-   * @param dy Delta Y in normalized coordinates
+   * 指定した差分だけパンする
+   * @param dx 正規化座標でのX方向の差分
+   * @param dy 正規化座標でのY方向の差分
    */
   pan(dx: number, dy: number): void {
+    // 現在のパン位置を取得
     const currentPan = this.gpuLayer.getPan();
+    // 差分を加算して新しいパン位置を設定
     this.setPan(currentPan.x + dx, currentPan.y + dy);
   }
 
   /**
-   * Schedule a data update based on current view state
-   * This is called when zoom/pan changes to load new visible points
+   * 現在のビュー状態に基づいてデータ更新をスケジュールする
+   * ズームやパンが変更されたときに新しい表示範囲のポイントを読み込むために呼ばれる
    */
   private scheduleDataUpdate(): void {
+    // 現在のビュー状態を取得
     const zoom = this.gpuLayer.getZoom();
     const pan = this.gpuLayer.getPan();
     const aspectRatio = this.gpuLayer.getAspectRatio();
 
+    // データレイヤーに表示範囲内のポイント更新をスケジュール
     this.dataLayer.scheduleVisiblePointsUpdate(
       zoom,
       pan.x,
       pan.y,
       aspectRatio,
       (data: ProcessedData) => {
-        // Update GPU layer with new data
+        // 新しいデータでGPUレイヤーのインスタンスバッファを更新
         this.gpuLayer.updateInstanceBuffer(data);
 
-        // Re-render with new data
+        // 新しいデータで再レンダリング
         this.render();
       }
     );
   }
 
   /**
-   * Handle point hover events from label layer
+   * ラベルレイヤーからのポイントホバーイベントを処理する
+   * @param data ホバー中のポイントデータ（またはnull）
+   * @param userCallback ユーザー定義のコールバック
    */
   private handlePointHover(
     data: { row: any[]; columns: string[] } | null,
     userCallback?: any
   ): void {
-    // Call user's callback if provided
+    // ユーザーのコールバックが指定されている場合は呼び出す
     if (userCallback) {
       userCallback(data);
     }
   }
 
+  /**
+   * カスタムSQLクエリを実行する
+   * @param query 実行するSQLクエリ文字列またはtoStringメソッドを持つオブジェクト
+   * @returns クエリ結果のParquetData
+   */
   async runQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
     return await this.dataLayer.executeQuery(query);
   }
 
+  /**
+   * 読み込まれたすべてのラベルを取得する
+   * @returns ラベルの配列
+   */
   getLabels(): Label[] {
     return this.labelLayer.getLabels();
   }
 
   // ============================================
-  // Programmatic Hover Control API
+  // プログラマティックホバー制御API
   // ============================================
 
   /**
-   * Programmatically set a point as hovered by its ID
-   * @param pointId The value of the idColumn for the point to hover
-   * @returns true if point was found and hovered, false otherwise
+   * IDを指定してプログラム的にポイントをホバー状態にする
+   * @param pointId ホバーするポイントのidColumn値
+   * @returns ポイントが見つかりホバーされた場合はtrue、そうでない場合はfalse
    */
   async setPointHover(pointId: PointId): Promise<boolean> {
+    // データレイヤーが初期化されていない場合は失敗
     if (!this.dataLayer.isInitialized()) {
       return false;
     }
 
+    // 指定されたIDでポイントデータを検索
     const pointData = await this.dataLayer.findPointById(pointId);
     if (!pointData) {
       return false;
     }
 
+    // ラベルレイヤーにホバー状態を設定
     this.labelLayer.setHoveredPoint(pointData);
     return true;
   }
 
   /**
-   * Clear the point hover state
+   * ポイントのホバー状態をクリアする
    */
   clearPointHover(): void {
     this.labelLayer.setHoveredPoint(null);
   }
 
   /**
-   * Get the currently hovered point data
-   * @returns Point data if hovering, null otherwise
+   * 現在ホバー中のポイントデータを取得する
+   * @returns ホバー中の場合はポイントデータ、そうでない場合はnull
    */
   getHoveredPoint(): { row: any[]; columns: string[] } | null {
     return this.labelLayer.getHoveredPoint();
   }
 
   /**
-   * Programmatically set a label as hovered
-   * @param identifier Label identifier (by text or cluster)
-   * @returns true if label was found and hovered, false otherwise
+   * プログラム的にラベルをホバー状態にする
+   * @param identifier ラベル識別子（テキストまたはクラスターで識別）
+   * @returns ラベルが見つかりホバーされた場合はtrue、そうでない場合はfalse
    */
   setLabelHover(identifier: LabelIdentifier): boolean {
+    // 識別子でラベルを検索
     const label = this.labelLayer.findLabel(identifier);
     if (!label) {
       return false;
     }
 
+    // ラベルレイヤーにホバー状態を設定
     this.labelLayer.setHoveredLabel(label);
     return true;
   }
 
   /**
-   * Clear the label hover state
+   * ラベルのホバー状態をクリアする
    */
   clearLabelHover(): void {
     this.labelLayer.setHoveredLabel(null);
   }
 
   /**
-   * Get the currently hovered label
-   * @returns Label if hovering, null otherwise
+   * 現在ホバー中のラベルを取得する
+   * @returns ホバー中の場合はラベル、そうでない場合はnull
    */
   getHoveredLabel(): Label | null {
     return this.labelLayer.getHoveredLabel();
   }
 
   /**
-   * Clear all hover states (both point and label)
+   * すべてのホバー状態をクリアする（ポイントとラベルの両方）
    */
   clearAllHover(): void {
+    // ポイントのホバー状態をクリア
     this.labelLayer.setHoveredPoint(null);
+    // ラベルのホバー状態をクリア
     this.labelLayer.setHoveredLabel(null);
   }
 
   /**
-   * Destroy resources
+   * リソースを破棄する
    */
   async destroy(): Promise<void> {
+    // データレイヤーのリソースを破棄（DuckDB接続を閉じる）
     await this.dataLayer.destroy();
+    // GPUレイヤーのリソースを破棄（GPUバッファを解放）
     this.gpuLayer.destroy();
+    // ラベルレイヤーのリソースを破棄（キャンバスを削除）
     this.labelLayer.destroy();
   }
 }
