@@ -3,81 +3,118 @@ import { scatterVertexShader } from '../shaders.js';
 import type { ColorRGBA } from '../types.js';
 import type { ProcessedData } from './data-layer.js';
 
+/**
+ * GpuLayerの設定オプション
+ */
 export interface GpuLayerOptions {
+  /** 描画対象のHTMLCanvasElement */
   canvas: HTMLCanvasElement;
+  /** 背景色（デフォルト: 透明な黒） */
   backgroundColor?: ColorRGBA;
 }
 
 /**
- * GpuLayer handles WebGPU rendering
- * Responsibilities:
- * - Manage WebGPU context and pipeline
- * - Create and manage GPU buffers
- * - Handle view matrix transformations (zoom/pan)
- * - Execute render passes
+ * WebGPUレンダリングを担当するレイヤー
+ * 責務:
+ * - WebGPUコンテキストとパイプラインの管理
+ * - GPUバッファの作成と管理
+ * - ビュー行列変換（ズーム/パン）の処理
+ * - レンダーパスの実行
  */
 export class GpuLayer {
+  /** WebGPUコンテキスト */
   private context: WebGPUContext;
+  /** 描画対象のキャンバス */
   private readonly canvas: HTMLCanvasElement;
+  /** レンダーパイプライン */
   private pipeline: GPURenderPipeline | null = null;
-  private quadVertexBuffer: GPUBuffer | null = null; // Quad vertices (stepMode: 'vertex')
-  private instanceBuffer: GPUBuffer | null = null; // Instance data: position + color (stepMode: 'instance')
+  /** クワッド頂点バッファ（stepMode: 'vertex'） */
+  private quadVertexBuffer: GPUBuffer | null = null;
+  /** インスタンスデータバッファ（位置+色、stepMode: 'instance'） */
+  private instanceBuffer: GPUBuffer | null = null;
+  /** インデックスバッファ */
   private indexBuffer: GPUBuffer | null = null;
+  /** ユニフォームバッファ */
   private uniformBuffer: GPUBuffer | null = null;
+  /** バインドグループ */
   private bindGroup: GPUBindGroup | null = null;
 
+  /** 現在の行数 */
   private rowCount: number = 0;
+  /** 背景色 */
   private backgroundColor: ColorRGBA = { r: 0, g: 0, b: 0, a: 0 };
-  private instanceBufferCapacity: number = 0; // Current buffer capacity in number of points
+  /** インスタンスバッファの現在の容量（ポイント数） */
+  private instanceBufferCapacity: number = 0;
 
-  // Zoom and pan state
+  // ズームとパンの状態
+  /** 現在のズームレベル */
   private zoom: number = 1.0;
+  /** 現在のX方向パンオフセット */
   private panX: number = 0.0;
+  /** 現在のY方向パンオフセット */
   private panY: number = 0.0;
 
+  /** インデックス数 */
   private indexCount: number = 0;
 
-  // Point hover state
+  // ポイントホバー状態
+  /** ホバー中のポイントのインデックス */
   private hoveredPointIndex: number | null = null;
+  /** ホバー時のスケール倍率 */
   private hoverScaleFactor: number = 1.3;
-  private baseInstanceData: Float32Array | null = null; // Original data without hover scaling
-  private currentInstanceData: Float32Array | null = null; // Data with hover scaling applied
+  /** ホバースケーリングなしの元のデータ */
+  private baseInstanceData: Float32Array | null = null;
+  /** ホバースケーリング適用後のデータ */
+  private currentInstanceData: Float32Array | null = null;
 
+  /**
+   * GpuLayerインスタンスを作成する
+   * @param options 設定オプション
+   */
   constructor(options: GpuLayerOptions) {
     this.canvas = options.canvas;
+    // WebGPUコンテキストを作成
     this.context = new WebGPUContext();
+    // 背景色を設定（デフォルト: 透明な黒）
     this.backgroundColor = options.backgroundColor ?? { r: 0, g: 0, b: 0, a: 0 };
   }
 
   /**
-   * Initialize WebGPU and create rendering resources
+   * WebGPUを初期化し、レンダリングリソースを作成する
+   * @param initialData 初期データ
    */
   async initialize(initialData: ProcessedData): Promise<void> {
+    // WebGPUコンテキストを初期化
     await this.context.initialize(this.canvas);
+    // レンダーパイプラインを作成
     this.createPipeline();
+    // バッファを作成
     await this.createBuffers(initialData);
+    // バインドグループを作成
     this.createBindGroup();
   }
 
   /**
-   * Create the render pipeline
+   * レンダーパイプラインを作成する
    */
   private createPipeline(): void {
+    // デバイスがない場合はエラー
     if (!this.context.device) {
       throw new Error('WebGPU device not initialized');
     }
 
+    // シェーダーモジュールを作成
     const shaderModule = this.context.device.createShaderModule({
       code: scatterVertexShader,
     });
 
-    // Quad vertex buffer layout (stepMode: 'vertex')
+    // クワッド頂点バッファレイアウト（stepMode: 'vertex'）
     const quadVertexBufferLayout: GPUVertexBufferLayout = {
       arrayStride: 8, // 2 floats * 4 bytes
       stepMode: 'vertex',
       attributes: [
         {
-          // quad position
+          // クワッド位置
           format: 'float32x2',
           offset: 0,
           shaderLocation: 0,
@@ -85,25 +122,25 @@ export class GpuLayer {
       ],
     };
 
-    // Instance buffer layout (stepMode: 'instance')
+    // インスタンスバッファレイアウト（stepMode: 'instance'）
     const instanceBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 28, // 2 floats (position) + 4 floats (color) + 1 float (size) = 7 floats * 4 bytes
+      arrayStride: 28, // 2 floats (位置) + 4 floats (色) + 1 float (サイズ) = 7 floats * 4 bytes
       stepMode: 'instance',
       attributes: [
         {
-          // point position
+          // ポイント位置
           format: 'float32x2',
           offset: 0,
           shaderLocation: 1,
         },
         {
-          // color
+          // 色
           format: 'float32x4',
           offset: 8,
           shaderLocation: 2,
         },
         {
-          // size
+          // サイズ
           format: 'float32',
           offset: 24,
           shaderLocation: 3,
@@ -111,6 +148,7 @@ export class GpuLayer {
       ],
     };
 
+    // レンダーパイプラインを作成
     this.pipeline = this.context.device.createRenderPipeline({
       layout: 'auto',
       vertex: {
@@ -146,35 +184,39 @@ export class GpuLayer {
   }
 
   /**
-   * Create vertex and uniform buffers
+   * 頂点バッファとユニフォームバッファを作成する
+   * @param data 初期データ
    */
   private async createBuffers(data: ProcessedData): Promise<void> {
+    // デバイスがない場合は終了
     if (!this.context.device) return;
 
-    // Create quad vertex buffer (only once, shared by all instances)
-    // Quad vertices: (-1,-1), (1,-1), (-1,1), (1,1)
+    // クワッド頂点バッファを作成（全インスタンスで共有、一度だけ作成）
+    // クワッド頂点: (-1,-1), (1,-1), (-1,1), (1,1)
     const quadVertices = new Float32Array([
       -1.0,
-      -1.0, // bottom-left
+      -1.0, // 左下
       1.0,
-      -1.0, // bottom-right
+      -1.0, // 右下
       -1.0,
-      1.0, // top-left
+      1.0, // 左上
       1.0,
-      1.0, // top-right
+      1.0, // 右上
     ]);
 
+    // クワッド頂点バッファを作成
     this.quadVertexBuffer = this.context.device.createBuffer({
       size: quadVertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
+    // データを書き込み
     this.context.device.queue.writeBuffer(this.quadVertexBuffer, 0, quadVertices);
 
-    // Create instance buffer with the provided data
+    // 提供されたデータでインスタンスバッファを作成
     this.updateInstanceBuffer(data);
 
-    // Create index buffer for a single quad (used for all instances)
-    // Two triangles forming a quad: (0,1,2) and (2,1,3)
+    // 単一クワッド用のインデックスバッファを作成（全インスタンスで使用）
+    // クワッドを形成する2つの三角形: (0,1,2) と (2,1,3)
     const indices = new Uint16Array([0, 1, 2, 2, 1, 3]);
 
     this.indexBuffer = this.context.device.createBuffer({
@@ -184,10 +226,10 @@ export class GpuLayer {
     this.context.device.queue.writeBuffer(this.indexBuffer, 0, indices);
     this.indexCount = indices.length;
 
-    // Create uniform buffer (view matrix + zoom + viewport dimensions + padding)
-    // WebGPU requires uniform buffer size to be multiple of 16 bytes
+    // ユニフォームバッファを作成（ビュー行列 + ズーム + ビューポートサイズ + パディング）
+    // WebGPUはユニフォームバッファサイズが16バイトの倍数であることを要求
     // mat4x4 (64 bytes) + zoom (4) + viewportWidth (4) + viewportHeight (4) + padding (4) = 80 bytes
-    // Rounded up to 96 bytes for alignment (24 floats)
+    // アライメントのため96バイトに切り上げ（24 floats）
     const uniformData = new Float32Array(24);
     const viewMatrix = this.createViewMatrix();
     uniformData.set(viewMatrix, 0);
@@ -203,29 +245,32 @@ export class GpuLayer {
   }
 
   /**
-   * Update instance buffer with new data
+   * 新しいデータでインスタンスバッファを更新する
+   * @param data 処理済みデータ
    */
   updateInstanceBuffer(data: ProcessedData): void {
+    // デバイスがない場合は終了
     if (!this.context.device) return;
 
+    // 行数を更新
     this.rowCount = data.rowCount;
 
-    // Store base copy of the instance data (without hover scaling)
+    // インスタンスデータのベースコピーを保存（ホバースケーリングなし）
     this.baseInstanceData = new Float32Array(data.instanceData);
 
-    // Create working copy for hover scaling
+    // ホバースケーリング用の作業コピーを作成
     this.currentInstanceData = new Float32Array(data.instanceData);
 
-    // Apply hover scaling if there's a hovered point
+    // ホバー中のポイントがあればスケーリングを適用
     this.applyHoverScaling();
 
-    // Only reallocate buffer if visiblePointLimit has changed
+    // visiblePointLimitが変更された場合のみバッファを再割り当て
     if (this.instanceBufferCapacity !== data.visiblePointLimit) {
-      // Keep old buffer until new one is ready
+      // 新しいバッファの準備ができるまで古いバッファを保持
       const oldBuffer = this.instanceBuffer;
 
-      // Allocate buffer for the full visiblePointLimit, not just actual rowCount
-      const bufferSize = data.visiblePointLimit * 7 * 4; // 7 floats per point * 4 bytes per float
+      // 実際のrowCountではなく、全visiblePointLimit用にバッファを割り当て
+      const bufferSize = data.visiblePointLimit * 7 * 4; // ポイントあたり7 floats * floatあたり4 bytes
 
       this.instanceBuffer = this.context.device.createBuffer({
         size: bufferSize,
@@ -234,13 +279,13 @@ export class GpuLayer {
 
       this.instanceBufferCapacity = data.visiblePointLimit;
 
-      // Destroy old buffer after new one is created
+      // 新しいバッファ作成後に古いバッファを破棄
       if (oldBuffer) {
         oldBuffer.destroy();
       }
     }
 
-    // Write data to buffer (reusing existing buffer if capacity unchanged)
+    // バッファにデータを書き込み（容量が変更されていない場合は既存バッファを再利用）
     if (this.instanceBuffer && this.currentInstanceData) {
       this.context.device.queue.writeBuffer(
         this.instanceBuffer,
@@ -251,11 +296,13 @@ export class GpuLayer {
   }
 
   /**
-   * Create bind group for uniforms
+   * ユニフォーム用のバインドグループを作成する
    */
   private createBindGroup(): void {
+    // 必要なリソースがない場合は終了
     if (!this.context.device || !this.pipeline || !this.uniformBuffer) return;
 
+    // バインドグループを作成
     this.bindGroup = this.context.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [
@@ -270,18 +317,19 @@ export class GpuLayer {
   }
 
   /**
-   * Create view matrix with zoom and pan transformations
+   * ズームとパン変換を含むビュー行列を作成する
+   * @returns ビュー行列のFloat32Array
    */
   private createViewMatrix(): Float32Array {
-    // Calculate aspect ratio correction to maintain 1:1 world space
+    // 1:1のワールド空間を維持するためにアスペクト比補正を計算
     const aspectRatio = this.canvas.width / this.canvas.height;
 
-    // Create a combined scale + translation matrix with aspect ratio correction
-    // Scale matrix:    [zoom/aspect, 0, 0, 0]  <- X scaled by aspect ratio
+    // アスペクト比補正を含むスケール+平行移動の結合行列を作成
+    // スケール行列:    [zoom/aspect, 0, 0, 0]  <- Xはアスペクト比でスケール
     //                  [0, zoom, 0, 0]
     //                  [0, 0, 1, 0]
     //                  [0, 0, 0, 1]
-    // Translation:     [1, 0, 0, 0]
+    // 平行移動:        [1, 0, 0, 0]
     //                  [0, 1, 0, 0]
     //                  [0, 0, 1, 0]
     //                  [panX, panY, 0, 1]
@@ -307,12 +355,13 @@ export class GpuLayer {
   }
 
   /**
-   * Update uniforms only
+   * ユニフォームのみを更新する
    */
   updateUniforms(): void {
+    // 必要なリソースがない場合は終了
     if (!this.context.device || !this.uniformBuffer) return;
 
-    // Must match buffer size from createBuffers (96 bytes = 24 floats)
+    // createBuffersのバッファサイズと一致させる必要がある（96 bytes = 24 floats）
     const uniformData = new Float32Array(24);
     const viewMatrix = this.createViewMatrix();
     uniformData.set(viewMatrix, 0);
@@ -320,43 +369,47 @@ export class GpuLayer {
     uniformData[17] = this.canvas.width;
     uniformData[18] = this.canvas.height;
 
+    // ユニフォームバッファにデータを書き込み
     this.context.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
   }
 
   /**
-   * Apply hover scaling to the hovered point in the instance data
+   * インスタンスデータ内のホバー中のポイントにスケーリングを適用する
    */
   private applyHoverScaling(): void {
+    // 現在のインスタンスデータがないか、ホバー中のポイントがない場合は終了
     if (!this.currentInstanceData || this.hoveredPointIndex === null) {
       return;
     }
 
-    // Check if index is valid
+    // インデックスが有効かチェック
     if (this.hoveredPointIndex < 0 || this.hoveredPointIndex >= this.rowCount) {
       return;
     }
 
-    // Scale the size of the hovered point (index 6 in the 7-float instance data)
+    // ホバー中のポイントのサイズをスケール（7-floatインスタンスデータのインデックス6）
     const sizeIndex = this.hoveredPointIndex * 7 + 6;
     this.currentInstanceData[sizeIndex] *= this.hoverScaleFactor;
   }
 
   /**
-   * Set the hovered point index and scale factor
+   * ホバー中のポイントのインデックスとスケール倍率を設定する
+   * @param index ホバー中のポイントのインデックス（またはnull）
+   * @param scaleFactor スケール倍率（デフォルト: 1.3）
    */
   setHoveredPoint(index: number | null, scaleFactor: number = 1.3): void {
     this.hoveredPointIndex = index;
     this.hoverScaleFactor = scaleFactor;
 
-    // Re-apply instance data with new hover scaling
+    // 新しいホバースケーリングでインスタンスデータを再適用
     if (this.baseInstanceData && this.context.device && this.instanceBuffer) {
-      // Restore from base data (unscaled)
+      // ベースデータ（スケーリングなし）から復元
       this.currentInstanceData = new Float32Array(this.baseInstanceData);
 
-      // Apply scaling to the new hovered point
+      // 新しいホバー中のポイントにスケーリングを適用
       this.applyHoverScaling();
 
-      // Update GPU buffer
+      // GPUバッファを更新
       this.context.device.queue.writeBuffer(
         this.instanceBuffer,
         0,
@@ -366,9 +419,10 @@ export class GpuLayer {
   }
 
   /**
-   * Render the scatter plot
+   * 散布図をレンダリングする
    */
   render(): void {
+    // 必要なリソースがすべてあるかチェック
     if (
       !this.context.device ||
       !this.context.context ||
@@ -380,9 +434,12 @@ export class GpuLayer {
       return;
     }
 
+    // コマンドエンコーダを作成
     const commandEncoder = this.context.device.createCommandEncoder();
+    // 現在のテクスチャのビューを取得
     const textureView = this.context.context.getCurrentTexture().createView();
 
+    // レンダーパスを開始
     const renderPass = commandEncoder.beginRenderPass({
       colorAttachments: [
         {
@@ -399,118 +456,150 @@ export class GpuLayer {
       ],
     });
 
+    // パイプラインを設定
     renderPass.setPipeline(this.pipeline);
-    renderPass.setVertexBuffer(0, this.quadVertexBuffer); // Quad vertices
-    renderPass.setVertexBuffer(1, this.instanceBuffer); // Instance data
+    // 頂点バッファを設定（スロット0: クワッド頂点）
+    renderPass.setVertexBuffer(0, this.quadVertexBuffer);
+    // 頂点バッファを設定（スロット1: インスタンスデータ）
+    renderPass.setVertexBuffer(1, this.instanceBuffer);
+    // インデックスバッファを設定
     renderPass.setIndexBuffer(this.indexBuffer!, 'uint16');
+    // バインドグループを設定
     renderPass.setBindGroup(0, this.bindGroup);
+    // インデックス付き描画を実行
     renderPass.drawIndexed(this.indexCount, this.rowCount, 0, 0, 0);
+    // レンダーパスを終了
     renderPass.end();
 
+    // コマンドバッファをGPUキューに送信
     this.context.device.queue.submit([commandEncoder.finish()]);
   }
 
   /**
-   * Resize canvas and update viewport
+   * キャンバスをリサイズし、ビューポートを更新する
+   * @param width 新しい幅
+   * @param height 新しい高さ
    */
   resize(width: number, height: number): void {
+    // キャンバスサイズを更新
     this.canvas.width = width;
     this.canvas.height = height;
-    this.updateUniforms(); // Update viewport dimensions in shader
-  }
-
-  /**
-   * Set zoom level
-   */
-  setZoom(zoom: number): void {
-    this.zoom = Math.max(0.01, Math.min(100, zoom)); // Clamp between 0.01x and 100x
+    // シェーダー内のビューポートサイズを更新
     this.updateUniforms();
   }
 
   /**
-   * Get current zoom level
+   * ズームレベルを設定する
+   * @param zoom ズームレベル
+   */
+  setZoom(zoom: number): void {
+    // 0.01xから100xの間にクランプ
+    this.zoom = Math.max(0.01, Math.min(100, zoom));
+    // ユニフォームを更新
+    this.updateUniforms();
+  }
+
+  /**
+   * 現在のズームレベルを取得する
+   * @returns 現在のズームレベル
    */
   getZoom(): number {
     return this.zoom;
   }
 
   /**
-   * Set pan offset
+   * パンオフセットを設定する
+   * @param x X方向のパンオフセット
+   * @param y Y方向のパンオフセット
    */
   setPan(x: number, y: number): void {
     this.panX = x;
     this.panY = y;
+    // ユニフォームを更新
     this.updateUniforms();
   }
 
   /**
-   * Get current pan offset
+   * 現在のパンオフセットを取得する
+   * @returns x, y座標を含むオブジェクト
    */
   getPan(): { x: number; y: number } {
     return { x: this.panX, y: this.panY };
   }
 
   /**
-   * Get canvas aspect ratio (width / height)
+   * キャンバスのアスペクト比（幅/高さ）を取得する
+   * @returns アスペクト比
    */
   getAspectRatio(): number {
     return this.canvas.width / this.canvas.height;
   }
 
   /**
-   * Zoom to a specific point (zoom centered on a screen coordinate)
+   * 指定した画面座標を中心にズームする
+   * @param newZoom 新しいズームレベル
+   * @param screenX 画面X座標
+   * @param screenY 画面Y座標
    */
   zoomToPoint(newZoom: number, screenX: number, screenY: number): void {
-    // Clamp the new zoom level
+    // 新しいズームレベルをクランプ
     const clampedZoom = Math.max(0.01, Math.min(100, newZoom));
 
-    // Calculate aspect ratio for coordinate transformations
+    // 座標変換用のアスペクト比を計算
     const aspectRatio = this.canvas.width / this.canvas.height;
 
-    // Convert screen coordinates to normalized device coordinates (-1 to 1)
+    // スクリーン座標を正規化デバイス座標（-1から1）に変換
     const ndcX = (screenX / this.canvas.width) * 2 - 1;
-    const ndcY = -((screenY / this.canvas.height) * 2 - 1); // Flip Y axis
+    const ndcY = -((screenY / this.canvas.height) * 2 - 1); // Y軸を反転
 
-    // Convert NDC to world coordinates before zoom (accounting for aspect ratio)
+    // ズーム前のNDCをワールド座標に変換（アスペクト比を考慮）
     const worldXBefore = ((ndcX - this.panX) * aspectRatio) / this.zoom;
     const worldYBefore = (ndcY - this.panY) / this.zoom;
 
-    // Update zoom
+    // ズームを更新
     this.zoom = clampedZoom;
 
-    // Calculate new pan to keep the world point at the same screen position
+    // ワールドポイントが同じスクリーン位置に保たれるように新しいパンを計算
     this.panX = ndcX - (worldXBefore * this.zoom) / aspectRatio;
     this.panY = ndcY - worldYBefore * this.zoom;
 
+    // ユニフォームを更新
     this.updateUniforms();
   }
 
   /**
-   * Update GPU layer options
+   * GPUレイヤーの設定オプションを更新する
+   * @param options 更新する設定オプション
    */
   updateOptions(options: Partial<GpuLayerOptions>): void {
+    // 背景色が指定されていれば更新
     if (options.backgroundColor !== undefined) {
       this.backgroundColor = options.backgroundColor;
     }
   }
 
   /**
-   * Destroy resources
+   * リソースを破棄する
    */
   destroy(): void {
+    // クワッド頂点バッファを破棄
     if (this.quadVertexBuffer) {
       this.quadVertexBuffer.destroy();
     }
+    // インスタンスバッファを破棄
     if (this.instanceBuffer) {
       this.instanceBuffer.destroy();
     }
+    // インデックスバッファを破棄
     if (this.indexBuffer) {
       this.indexBuffer.destroy();
     }
+    // ユニフォームバッファを破棄
     if (this.uniformBuffer) {
       this.uniformBuffer.destroy();
     }
 
+    // WebGPUコンテキストを破棄
     this.context.destroy();
   }
 }

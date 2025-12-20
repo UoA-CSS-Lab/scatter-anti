@@ -3,16 +3,27 @@ import { createParquetReader } from '../repository.js';
 import type { WhereCondition, ScatterPlotError, PointId } from '../types.js';
 import { createError } from '../errors.js';
 
+/**
+ * DataLayerの設定オプション
+ */
 export interface DataLayerOptions {
+  /** 表示するポイントの最大数 */
   visiblePointLimit?: number;
+  /** ポイントサイズを計算するSQL式 */
   sizeSql?: string;
+  /** ポイント色を計算するSQL式（ARGB形式） */
   colorSql?: string;
+  /** データフィルタリング用のWHERE条件 */
   whereConditions?: WhereCondition[];
+  /** ポイントを識別するためのカラム名 */
   idColumn: string;
-  /** Callback to emit errors to ScatterPlot */
+  /** エラーをScatterPlotに通知するためのコールバック */
   onError?: (error: ScatterPlotError) => void;
 }
 
+/**
+ * 表示範囲の境界を表すインターフェース
+ */
 export interface VisibleBounds {
   minX: number;
   maxX: number;
@@ -20,12 +31,21 @@ export interface VisibleBounds {
   maxY: number;
 }
 
+/**
+ * GPU用に処理されたデータ
+ */
 export interface ProcessedData {
+  /** インスタンスデータ（位置、色、サイズ）のFloat32Array */
   instanceData: Float32Array;
+  /** 行数 */
   rowCount: number;
+  /** 表示ポイント数の上限 */
   visiblePointLimit: number;
 }
 
+/**
+ * 現在表示中のポイントデータ
+ */
 interface VisibleData {
   id: string;
   x: number;
@@ -34,30 +54,41 @@ interface VisibleData {
 }
 
 /**
- * DataLayer handles data acquisition and query management
- * Responsibilities:
- * - Load and manage Parquet data via ParquetReader
- * - Calculate visible viewport bounds
- * - Query and filter data based on viewport
- * - Throttle queries to optimize performance
- * - Convert data to GPU-ready format
+ * データ取得とクエリ管理を担当するレイヤー
+ * 責務:
+ * - ParquetReaderを介したParquetデータの読み込みと管理
+ * - 表示範囲の境界計算
+ * - ビューポートに基づくデータのクエリとフィルタリング
+ * - パフォーマンス最適化のためのクエリスロットリング
+ * - データをGPU用フォーマットに変換
  */
 export class DataLayer {
+  /** Parquetデータへのアクセスを提供するリポジトリ */
   private repository: ParquetReader | null = null;
+  /** 表示するポイントの最大数 */
   private visiblePointLimit: number = 100000;
+  /** ポイントサイズのSQL式 */
   private sizeSql: string = '3';
-  private colorSql: string = '0x4D4D4DCC'; // ARGB: a=0.3, r=0.3, g=0.3, b=0.8
+  /** ポイント色のSQL式（ARGB形式: a=0.3, r=0.3, g=0.3, b=0.8） */
+  private colorSql: string = '0x4D4D4DCC';
+  /** フィルタリング用のWHERE条件 */
   private whereConditions: WhereCondition[] = [];
+  /** エラー通知用コールバック */
   private onError?: (error: ScatterPlotError) => void;
 
+  /** 現在表示中のポイントデータのキャッシュ */
   private currentVisibleData: VisibleData[] = [];
+  /** ポイント識別用のカラム名 */
   private idColumn: string = '';
 
-  // Spatial query optimization
-  private readonly VIEWPORT_MARGIN = 0.5; // 50% extra on each side
+  // 空間クエリ最適化
+  /** ビューポートの余白（各辺に50%追加） */
+  private readonly VIEWPORT_MARGIN = 0.5;
 
-  // Query cancellation and state tracking
-  private currentQueryId: number = 0; // Increments with each new query
+  // クエリキャンセルと状態追跡
+  /** 現在のクエリID（新しいクエリごとにインクリメント） */
+  private currentQueryId: number = 0;
+  /** 最後にリクエストされたビューポート情報 */
   private latestRequestedViewport: {
     zoom: number;
     panX: number;
@@ -65,12 +96,20 @@ export class DataLayer {
     queryId: number;
   } | null = null;
 
-  // Query throttling
-  private readonly queryThrottleInterval: number = 300; // ms between queries
+  // クエリスロットリング
+  /** クエリ間の最小間隔（ミリ秒） */
+  private readonly queryThrottleInterval: number = 300;
+  /** 最後のクエリ実行時刻 */
   private lastQueryTime: number = 0;
+  /** スロットリング用タイマーID */
   private throttleTimer: number | null = null;
 
+  /**
+   * DataLayerインスタンスを作成する
+   * @param options 設定オプション
+   */
   constructor(options: DataLayerOptions) {
+    // オプションから設定値を初期化
     this.visiblePointLimit = options.visiblePointLimit ?? this.visiblePointLimit;
     this.sizeSql = options.sizeSql ?? this.sizeSql;
     this.colorSql = options.colorSql ?? this.colorSql;
@@ -80,38 +119,51 @@ export class DataLayer {
   }
 
   /**
-   * Initialize the data layer and load data
+   * データレイヤーを初期化し、データを読み込む
+   * @param dataUrl Parquetファイルのurl
+   * @param aspectRatio キャンバスのアスペクト比
+   * @returns 処理済みの初期データ
    */
   async initialize(dataUrl: string, aspectRatio: number = 1.0): Promise<ProcessedData> {
+    // ParquetReaderを作成して初期化
     this.repository = await createParquetReader();
+    // URLからParquetファイルを読み込み
     await this.repository.loadParquetFromUrl(dataUrl, this.idColumn);
 
-    // Load initial data
+    // 初期データを読み込んで返す
     return await this.loadInitialData(aspectRatio);
   }
 
   /**
-   * Load GeoJSON label data into DuckDB table
+   * GeoJSONラベルデータをDuckDBテーブルに読み込む
+   * @param geojson GeoJSON FeatureCollectionオブジェクト
    */
   async loadLabelData(geojson: any): Promise<void> {
+    // 初期化チェック
     if (!this.repository) {
       throw new Error('DataLayer not initialized. Call initialize() first.');
     }
+    // GeoJSONをテーブルとして読み込み
     await this.repository.loadGeoJson(geojson);
   }
 
   /**
-   * Build WHERE clause string from a single condition
+   * 単一の条件からWHERE句文字列を構築する
+   * @param condition WHERE条件
+   * @returns SQL WHERE句の文字列
    */
   private buildWhereClauseString(condition: WhereCondition): string {
     if (condition.type === 'numeric') {
+      // 数値フィルタ: カラム 演算子 値
       return `${condition.column} ${condition.operator} ${condition.value}`;
     } else if (condition.type === 'raw') {
+      // 生のSQL
       return condition.sql;
     } else {
-      // String filter - escape single quotes
+      // 文字列フィルタ - シングルクォートをエスケープ
       const escapedValue = condition.value.replace(/'/g, "''");
 
+      // 演算子に基づいてSQL LIKE句を構築
       switch (condition.operator) {
         case 'equals':
           return `${condition.column} = '${escapedValue}'`;
@@ -125,45 +177,62 @@ export class DataLayer {
     }
   }
 
+  /**
+   * 指定された境界内のポイントをクエリする
+   * @param bounds 表示範囲の境界
+   * @returns クエリ結果のParquetData
+   */
   async runQuery(bounds: VisibleBounds): Promise<ParquetData | undefined> {
     return this.repository?.query({
       toString: () => {
+        // 境界条件を配列に追加
         const whereConditions: string[] = [
           `x BETWEEN ${bounds.minX} AND ${bounds.maxX}`,
           `y BETWEEN ${bounds.minY} AND ${bounds.maxY}`,
         ];
 
-        // Apply custom WHERE conditions (all combined with AND)
+        // カスタムWHERE条件を追加（すべてANDで結合）
         for (const condition of this.whereConditions) {
           whereConditions.push(this.buildWhereClauseString(condition));
         }
 
+        // WHERE句を構築
         const whereClause = whereConditions.join(' AND ');
 
+        // 最終的なSQLクエリを構築
         return `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data WHERE ${whereClause} LIMIT ${this.visiblePointLimit}`;
       },
     });
   }
 
   /**
-   * Execute a custom SQL query against the data
-   * Supports both string queries and objects with toString method
+   * カスタムSQLクエリを実行する
+   * 文字列クエリとtoStringメソッドを持つオブジェクトの両方をサポート
+   * @param query SQLクエリ
+   * @returns クエリ結果のParquetData
    */
   async executeQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
+    // リポジトリが未初期化の場合はundefinedを返す
     if (!this.repository) {
       return undefined;
     }
+    // 文字列の場合はオブジェクトに変換
     const queryObj = typeof query === 'string' ? { toString: () => query } : query;
     return this.repository.query(queryObj);
   }
 
   /**
-   * Load initial data for the default viewport
+   * デフォルトビューポート用の初期データを読み込む
+   * @param aspectRatio キャンバスのアスペクト比
+   * @returns 処理済みデータ
    */
   private async loadInitialData(aspectRatio: number = 1.0): Promise<ProcessedData> {
+    // 初期ビュー（ズーム1.0、パン0,0）の境界を計算
     const bounds = this.calculateVisibleBounds(1.0, 0.0, 0.0, aspectRatio);
+    // 境界内のデータをクエリ
     const data = await this.runQuery(bounds);
 
+    // データがない場合は空のデータを返す
     if (!data) {
       return {
         instanceData: new Float32Array(0),
@@ -172,11 +241,17 @@ export class DataLayer {
       };
     }
 
+    // GPU用フォーマットに変換して返す
     return this.processDataToGpuFormat(data);
   }
 
   /**
-   * Calculate visible bounds in world coordinates with margin
+   * 余白付きでワールド座標での表示範囲を計算する
+   * @param zoom ズームレベル
+   * @param panX X方向のパンオフセット
+   * @param panY Y方向のパンオフセット
+   * @param aspectRatio アスペクト比
+   * @returns 表示範囲の境界
    */
   calculateVisibleBounds(
     zoom: number,
@@ -184,12 +259,12 @@ export class DataLayer {
     panY: number,
     aspectRatio: number
   ): VisibleBounds {
-    // Clip space bounds with margin
+    // 余白付きのクリップ空間の境界
     const clipMin = -1 - this.VIEWPORT_MARGIN;
     const clipMax = 1 + this.VIEWPORT_MARGIN;
 
-    // Convert clip space to world coordinates, accounting for aspect ratio correction
-    // The view matrix scales X by zoom/aspectRatio and Y by zoom, so we need to invert that:
+    // クリップ空間をワールド座標に変換（アスペクト比補正を考慮）
+    // ビュー行列はXをzoom/aspectRatioで、Yをzoomでスケールするので、逆変換が必要:
     // worldX = (clipX - panX) * aspectRatio / zoom
     // worldY = (clipY - panY) / zoom
     const minX = ((clipMin - panX) * aspectRatio) / zoom;
@@ -201,7 +276,12 @@ export class DataLayer {
   }
 
   /**
-   * Schedule a visible points update with throttling
+   * スロットリング付きで表示ポイントの更新をスケジュールする
+   * @param zoom ズームレベル
+   * @param panX X方向のパンオフセット
+   * @param panY Y方向のパンオフセット
+   * @param aspectRatio アスペクト比
+   * @param callback 更新完了時に呼び出されるコールバック
    */
   scheduleVisiblePointsUpdate(
     zoom: number,
@@ -210,12 +290,12 @@ export class DataLayer {
     aspectRatio: number,
     callback: (data: ProcessedData) => void
   ): void {
-    // Increment query ID and store latest viewport request
+    // クエリIDをインクリメントして最新のビューポートリクエストを保存
     this.currentQueryId++;
     const queryId = this.currentQueryId;
     this.latestRequestedViewport = { zoom, panX, panY, queryId };
 
-    // Clear any existing scheduled query
+    // 既存のスケジュール済みクエリをクリア
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
@@ -224,15 +304,15 @@ export class DataLayer {
     const now = performance.now();
     const timeSinceLastQuery = now - this.lastQueryTime;
 
-    // If enough time has passed, run query immediately
+    // 十分な時間が経過していれば即座にクエリを実行
     if (timeSinceLastQuery >= this.queryThrottleInterval) {
       this.updateVisiblePoints(zoom, panX, panY, aspectRatio, queryId, callback);
     } else {
-      // Otherwise, schedule query to run after throttle period
+      // そうでなければスロットル期間後にクエリをスケジュール
       const delay = this.queryThrottleInterval - timeSinceLastQuery;
       this.throttleTimer = window.setTimeout(() => {
         this.throttleTimer = null;
-        // Check if this is still the latest request before executing
+        // 実行前にこれがまだ最新のリクエストかチェック
         if (this.latestRequestedViewport && this.latestRequestedViewport.queryId === queryId) {
           this.updateVisiblePoints(zoom, panX, panY, aspectRatio, queryId, callback);
         }
@@ -241,7 +321,13 @@ export class DataLayer {
   }
 
   /**
-   * Update visible points using spatial query (non-blocking with cancellation)
+   * 空間クエリを使用して表示ポイントを更新する（キャンセル機能付きの非ブロッキング）
+   * @param zoom ズームレベル
+   * @param panX X方向のパンオフセット
+   * @param panY Y方向のパンオフセット
+   * @param aspectRatio アスペクト比
+   * @param queryId このクエリのID
+   * @param callback 更新完了時に呼び出されるコールバック
    */
   private async updateVisiblePoints(
     zoom: number,
@@ -251,34 +337,39 @@ export class DataLayer {
     queryId: number,
     callback: (data: ProcessedData) => void
   ): Promise<void> {
+    // リポジトリが未初期化なら何もしない
     if (!this.repository) {
       return;
     }
 
-    // Update last query time
+    // 最後のクエリ時刻を更新
     this.lastQueryTime = performance.now();
 
     try {
+      // 表示範囲の境界を計算
       const bounds = this.calculateVisibleBounds(zoom, panX, panY, aspectRatio);
+      // データをクエリ
       const data = await this.runQuery(bounds);
 
-      // Check if this query is still relevant (hasn't been superseded)
+      // このクエリがまだ有効か確認（より新しいクエリに置き換えられていないか）
       if (queryId !== this.currentQueryId) {
         return;
       }
 
+      // データがなければ終了
       if (!data) {
         return;
       }
 
+      // GPU用フォーマットに変換
       const processedData = this.processDataToGpuFormat(data);
 
-      // Final check before applying results
+      // 結果を適用する前に最終チェック
       if (queryId === this.currentQueryId) {
         callback(processedData);
       }
     } catch (e) {
-      // Emit error event instead of silently ignoring
+      // エラーを無視せずエラーイベントを発行
       if (this.onError) {
         this.onError(
           createError('QUERY_FAILED', 'Background viewport query failed', {
@@ -291,16 +382,20 @@ export class DataLayer {
   }
 
   /**
-   * Convert columnar data to GPU-ready instance data format
-   * Format: [x, y, r, g, b, a, size] per point
+   * カラム形式のデータをGPU用インスタンスデータフォーマットに変換する
+   * フォーマット: ポイントごとに [x, y, r, g, b, a, size]
+   * @param data ParquetData形式のデータ
+   * @returns 処理済みデータ
    */
   private processDataToGpuFormat(data: ParquetData): ProcessedData {
+    // 各カラムを取得
     const xColumn = data.columnData.get('x');
     const yColumn = data.columnData.get('y');
     const sizeColumn = data.columnData.get('__size__');
     const colorColumn = data.columnData.get('__color__');
     const idColumn = data.columnData.get(this.idColumn);
 
+    // 必要なカラムがない場合は空データを返す
     if (!xColumn || !yColumn || !sizeColumn || !colorColumn || !idColumn) {
       return {
         instanceData: new Float32Array(0),
@@ -309,25 +404,28 @@ export class DataLayer {
       };
     }
 
+    // キャッシュ用配列とインスタンスデータ配列を初期化
     const cachedData = new Array<VisibleData>(data.rowCount);
     const instanceData = new Float32Array(data.rowCount * 7);
 
+    // 各行を処理
     for (let i = 0; i < data.rowCount; i++) {
       const x = xColumn.get(i);
       const y = yColumn.get(i);
       const size = sizeColumn.get(i);
       const argbRaw = colorColumn.get(i);
 
-      // Handle BigInt from DuckDB
+      // DuckDBからのBigIntを処理
       const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
 
-      // Unpack ARGB integer to RGBA floats (0-1 range)
-      // ARGB format: 0xAARRGGBB
+      // ARGB整数をRGBA浮動小数点（0-1範囲）に展開
+      // ARGBフォーマット: 0xAARRGGBB
       const a = ((argb >>> 24) & 0xff) / 255;
       const r = ((argb >>> 16) & 0xff) / 255;
       const g = ((argb >>> 8) & 0xff) / 255;
       const b = (argb & 0xff) / 255;
 
+      // インスタンスデータ配列にデータを格納
       instanceData[i * 7 + 0] = x;
       instanceData[i * 7 + 1] = y;
       instanceData[i * 7 + 2] = r;
@@ -336,6 +434,7 @@ export class DataLayer {
       instanceData[i * 7 + 5] = a;
       instanceData[i * 7 + 6] = size;
 
+      // キャッシュにデータを保存
       cachedData[i] = {
         id: idColumn.get(i),
         x: x,
@@ -344,15 +443,18 @@ export class DataLayer {
       };
     }
 
+    // 現在の表示データを更新
     this.currentVisibleData = cachedData;
 
     return { instanceData, rowCount: data.rowCount, visiblePointLimit: this.visiblePointLimit };
   }
 
   /**
-   * Update configuration options
+   * 設定オプションを更新する
+   * @param options 更新する設定オプション
    */
   updateOptions(options: Partial<DataLayerOptions>): void {
+    // 各オプションが定義されていれば更新
     if (options.visiblePointLimit !== undefined) {
       this.visiblePointLimit = options.visiblePointLimit;
     }
@@ -371,15 +473,22 @@ export class DataLayer {
   }
 
   /**
-   * Get point color from row data (expects __color__ column from SQL)
+   * 行データからポイントの色を取得する（SQLからの__color__カラムが必要）
+   * @param row 行データ
+   * @param columns カラム名の配列
+   * @returns RGBAカラーオブジェクト
    */
   getPointColor(row: any[], columns: string[]): { r: number; g: number; b: number; a: number } {
+    // __color__カラムのインデックスを取得
     const colorIdx = columns.indexOf('__color__');
+    // 見つからない場合はデフォルト色を返す
     if (colorIdx === -1) {
-      return { r: 0.3, g: 0.3, b: 0.8, a: 0.3 }; // fallback
+      return { r: 0.3, g: 0.3, b: 0.8, a: 0.3 };
     }
     const argbRaw = row[colorIdx];
+    // BigIntをNumberに変換
     const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
+    // ARGBからRGBA成分を抽出
     return {
       a: ((argb >>> 24) & 0xff) / 255,
       r: ((argb >>> 16) & 0xff) / 255,
@@ -389,28 +498,33 @@ export class DataLayer {
   }
 
   /**
-   * Get point size from row data (expects __size__ column from SQL)
+   * 行データからポイントのサイズを取得する（SQLからの__size__カラムが必要）
+   * @param row 行データ
+   * @param columns カラム名の配列
+   * @returns ポイントサイズ
    */
   getPointSize(row: any[], columns: string[]): number {
+    // __size__カラムのインデックスを取得
     const sizeIdx = columns.indexOf('__size__');
+    // 見つからない場合はデフォルトサイズを返す
     if (sizeIdx === -1) {
-      return 3; // fallback
+      return 3;
     }
     return row[sizeIdx];
   }
 
   /**
-   * Find the nearest point to screen coordinates
-   * @param screenX Mouse X in screen coordinates
-   * @param screenY Mouse Y in screen coordinates
-   * @param canvasWidth Canvas width in pixels
-   * @param canvasHeight Canvas height in pixels
-   * @param zoom Current zoom level
-   * @param panX Current pan X
-   * @param panY Current pan Y
-   * @param aspectRatio Canvas aspect ratio
-   * @param thresholdPixels Maximum distance in pixels to consider a hit (default: 10)
-   * @returns Point data and index if found, null otherwise
+   * 画面座標に最も近いポイントを検索する
+   * @param screenX マウスのスクリーンX座標
+   * @param screenY マウスのスクリーンY座標
+   * @param canvasWidth キャンバスの幅（ピクセル）
+   * @param canvasHeight キャンバスの高さ（ピクセル）
+   * @param zoom 現在のズームレベル
+   * @param panX 現在のパンX
+   * @param panY 現在のパンY
+   * @param aspectRatio キャンバスのアスペクト比
+   * @param thresholdPixels ヒットと見なす最大距離（ピクセル、デフォルト: 10）
+   * @returns 見つかった場合はポイントデータ、そうでない場合はnull
    */
   async findNearestPoint(
     screenX: number,
@@ -423,58 +537,63 @@ export class DataLayer {
     aspectRatio: number,
     thresholdPixels: number = 10
   ): Promise<{ row: any[]; columns: string[] } | null> {
+    // 表示データがないかリポジトリが未初期化の場合はnullを返す
     if (this.currentVisibleData.length == 0 || this.repository == null) {
       return null;
     }
 
-    // Convert screen coordinates to clip space (-1 to 1)
+    // スクリーン座標をクリップ空間（-1から1）に変換
     const clipX = (screenX / canvasWidth) * 2 - 1;
-    const clipY = -((screenY / canvasHeight) * 2 - 1); // Flip Y axis
+    const clipY = -((screenY / canvasHeight) * 2 - 1); // Y軸を反転
 
-    // Convert clip space to world coordinates
-    // Inverse of: clipPos = worldPos * vec2(zoom / aspectRatio, zoom) + vec2(panX, panY)
+    // クリップ空間をワールド座標に変換
+    // 逆変換: clipPos = worldPos * vec2(zoom / aspectRatio, zoom) + vec2(panX, panY)
     const worldX = ((clipX - panX) * aspectRatio) / zoom;
     const worldY = (clipY - panY) / zoom;
 
-    // Calculate threshold in world space
-    // Convert pixel threshold to clip space, then to world space
+    // ワールド空間での閾値を計算
+    // ピクセル閾値をクリップ空間に変換し、次にワールド空間に変換
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
 
     let nearestId: string | null = null;
     let nearestDistance = Infinity;
 
-    // Search through all visible points
+    // すべての表示ポイントを検索
     // TODO: 現在は全探索しているが、quad treeとか使ってもいいかもしれない
     for (let i = 0; i < this.currentVisibleData.length; i++) {
       const pointX = this.currentVisibleData[i].x;
       const pointY = this.currentVisibleData[i].y;
 
-      // Calculate distance in world space
+      // ワールド空間での距離を計算
       const dx = pointX - worldX;
       const dy = pointY - worldY;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
+      // より近いポイントで閾値内であれば更新
       if (distance < nearestDistance && distance <= thresholdWorld) {
         nearestDistance = distance;
         nearestId = this.currentVisibleData[i].id;
       }
     }
 
+    // 見つからなかった場合はnullを返す
     if (nearestId == null) {
       return null;
     }
 
+    // 見つかったIDでポイントの完全なデータをクエリ
     const data = await this.repository.query({
       toString: () =>
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
     });
 
+    // クエリ結果がない場合はnullを返す
     if (!data) {
       return null;
     }
 
-    // Extract first row
+    // 最初の行を抽出
     const row: any[] = new Array(data.columns.length);
     for (let j = 0; j < data.columns.length; j++) {
       const column = data.columnData.get(data.columns[j]);
@@ -485,35 +604,39 @@ export class DataLayer {
   }
 
   /**
-   * Check if the data layer is initialized
+   * データレイヤーが初期化されているかチェックする
+   * @returns 初期化されていればtrue
    */
   isInitialized(): boolean {
     return this.repository !== null;
   }
 
   /**
-   * Find a point by its ID (idColumn value)
-   * @param pointId The value of the idColumn for the point to find
-   * @returns Point data if found, null otherwise
+   * IDでポイントを検索する（idColumnの値で検索）
+   * @param pointId 検索するポイントのidColumn値
+   * @returns 見つかった場合はポイントデータ、そうでない場合はnull
    */
   async findPointById(pointId: PointId): Promise<{ row: any[]; columns: string[] } | null> {
+    // リポジトリが未初期化の場合はnullを返す
     if (!this.repository) {
       return null;
     }
 
-    // Escape string values, use numbers directly
+    // 文字列値はエスケープ、数値はそのまま使用
     const escapedId = typeof pointId === 'string' ? `'${pointId.replace(/'/g, "''")}'` : pointId;
 
+    // IDでポイントデータをクエリ
     const data = await this.repository.query({
       toString: () =>
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${escapedId}`,
     });
 
+    // 結果がないか行数が0の場合はnullを返す
     if (!data || data.rowCount === 0) {
       return null;
     }
 
-    // Extract first row
+    // 最初の行を抽出
     const row: any[] = new Array(data.columns.length);
     for (let j = 0; j < data.columns.length; j++) {
       const column = data.columnData.get(data.columns[j]);
@@ -524,16 +647,16 @@ export class DataLayer {
   }
 
   /**
-   * Cleanup resources
+   * リソースをクリーンアップする
    */
   async destroy(): Promise<void> {
-    // Clear any pending throttled queries
+    // 保留中のスロットルクエリをクリア
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
 
-    // Close the repository connection
+    // リポジトリ接続を閉じる
     if (this.repository) {
       await this.repository.close();
       this.repository = null;

@@ -1,51 +1,51 @@
 import type { ScatterPlotError, ErrorCode, ErrorCategory, ErrorSeverity } from './types.js';
 
 /**
- * Mapping from error codes to their categories
+ * エラーコードからカテゴリへのマッピング
  */
 const categoryMap: Record<ErrorCode, ErrorCategory> = {
-  // WebGPU errors
+  // WebGPUエラー
   WEBGPU_NOT_SUPPORTED: 'webgpu',
   GPU_ADAPTER_NOT_AVAILABLE: 'webgpu',
   GPU_DEVICE_FAILED: 'webgpu',
   WEBGPU_CONTEXT_FAILED: 'webgpu',
-  // Data errors
+  // データエラー
   DATA_LAYER_NOT_INITIALIZED: 'data',
   PARQUET_LOAD_FAILED: 'data',
   QUERY_FAILED: 'query',
-  // Label errors
+  // ラベルエラー
   LABEL_FETCH_FAILED: 'label',
   LABEL_PARSE_FAILED: 'label',
-  // Network errors
+  // ネットワークエラー
   NETWORK_ERROR: 'network',
 };
 
 /**
- * Mapping from error codes to their severity levels
+ * エラーコードから重大度レベルへのマッピング
  */
 const severityMap: Record<ErrorCode, ErrorSeverity> = {
-  // Fatal errors - application cannot continue
+  // 致命的エラー - アプリケーションは続行不可
   WEBGPU_NOT_SUPPORTED: 'fatal',
   GPU_ADAPTER_NOT_AVAILABLE: 'fatal',
   GPU_DEVICE_FAILED: 'fatal',
   WEBGPU_CONTEXT_FAILED: 'fatal',
   DATA_LAYER_NOT_INITIALIZED: 'fatal',
   PARQUET_LOAD_FAILED: 'fatal',
-  // Regular errors - operation failed but app can continue
+  // 通常のエラー - 操作は失敗したがアプリは続行可能
   QUERY_FAILED: 'error',
   NETWORK_ERROR: 'error',
-  // Warnings - non-critical issues
+  // 警告 - 重要ではない問題
   LABEL_FETCH_FAILED: 'warning',
   LABEL_PARSE_FAILED: 'warning',
 };
 
 /**
- * Create a ScatterPlotError object with the given code and message.
+ * 指定されたコードとメッセージでScatterPlotErrorオブジェクトを作成する
  *
- * @param code - The error code
- * @param message - Human-readable error message
- * @param options - Additional options
- * @returns A ScatterPlotError object
+ * @param code エラーコード
+ * @param message 人間が読めるエラーメッセージ
+ * @param options 追加オプション
+ * @returns ScatterPlotErrorオブジェクト
  *
  * @example
  * ```typescript
@@ -64,13 +64,19 @@ export function createError(
     context?: Record<string, unknown>;
   }
 ): ScatterPlotError {
+  // エラーオブジェクトを構築して返す
   return {
     code,
+    // マップからカテゴリを取得
     category: categoryMap[code],
+    // マップから重大度を取得
     severity: severityMap[code],
     message,
+    // 元の原因となったエラー
     cause: options?.cause,
+    // 追加のコンテキスト情報
     context: options?.context,
+    // エラー発生時のタイムスタンプ
     timestamp: Date.now(),
   };
 }
