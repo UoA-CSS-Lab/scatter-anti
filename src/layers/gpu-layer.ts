@@ -57,16 +57,6 @@ export class GpuLayer {
   /** インデックス数 */
   private indexCount: number = 0;
 
-  // ポイントホバー状態
-  /** ホバー中のポイントのインデックス */
-  private hoveredPointIndex: number | null = null;
-  /** ホバー時のスケール倍率 */
-  private hoverScaleFactor: number = 1.3;
-  /** ホバースケーリングなしの元のデータ */
-  private baseInstanceData: Float32Array | null = null;
-  /** ホバースケーリング適用後のデータ */
-  private currentInstanceData: Float32Array | null = null;
-
   /**
    * GpuLayerインスタンスを作成する
    * @param options 設定オプション
@@ -256,13 +246,7 @@ export class GpuLayer {
     this.rowCount = data.rowCount;
 
     // インスタンスデータのベースコピーを保存（ホバースケーリングなし）
-    this.baseInstanceData = new Float32Array(data.instanceData);
-
-    // ホバースケーリング用の作業コピーを作成
-    this.currentInstanceData = new Float32Array(data.instanceData);
-
-    // ホバー中のポイントがあればスケーリングを適用
-    this.applyHoverScaling();
+    const baseInstanceData = new Float32Array(data.instanceData);
 
     // visiblePointLimitが変更された場合のみバッファを再割り当て
     if (this.instanceBufferCapacity !== data.visiblePointLimit) {
@@ -286,11 +270,11 @@ export class GpuLayer {
     }
 
     // バッファにデータを書き込み（容量が変更されていない場合は既存バッファを再利用）
-    if (this.instanceBuffer && this.currentInstanceData) {
+    if (this.instanceBuffer && baseInstanceData) {
       this.context.device.queue.writeBuffer(
         this.instanceBuffer,
         0,
-        this.currentInstanceData as BufferSource
+        baseInstanceData as BufferSource
       );
     }
   }
@@ -371,51 +355,6 @@ export class GpuLayer {
 
     // ユニフォームバッファにデータを書き込み
     this.context.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
-  }
-
-  /**
-   * インスタンスデータ内のホバー中のポイントにスケーリングを適用する
-   */
-  private applyHoverScaling(): void {
-    // 現在のインスタンスデータがないか、ホバー中のポイントがない場合は終了
-    if (!this.currentInstanceData || this.hoveredPointIndex === null) {
-      return;
-    }
-
-    // インデックスが有効かチェック
-    if (this.hoveredPointIndex < 0 || this.hoveredPointIndex >= this.rowCount) {
-      return;
-    }
-
-    // ホバー中のポイントのサイズをスケール（7-floatインスタンスデータのインデックス6）
-    const sizeIndex = this.hoveredPointIndex * 7 + 6;
-    this.currentInstanceData[sizeIndex] *= this.hoverScaleFactor;
-  }
-
-  /**
-   * ホバー中のポイントのインデックスとスケール倍率を設定する
-   * @param index ホバー中のポイントのインデックス（またはnull）
-   * @param scaleFactor スケール倍率（デフォルト: 1.3）
-   */
-  setHoveredPoint(index: number | null, scaleFactor: number = 1.3): void {
-    this.hoveredPointIndex = index;
-    this.hoverScaleFactor = scaleFactor;
-
-    // 新しいホバースケーリングでインスタンスデータを再適用
-    if (this.baseInstanceData && this.context.device && this.instanceBuffer) {
-      // ベースデータ（スケーリングなし）から復元
-      this.currentInstanceData = new Float32Array(this.baseInstanceData);
-
-      // 新しいホバー中のポイントにスケーリングを適用
-      this.applyHoverScaling();
-
-      // GPUバッファを更新
-      this.context.device.queue.writeBuffer(
-        this.instanceBuffer,
-        0,
-        this.currentInstanceData as BufferSource
-      );
-    }
   }
 
   /**
