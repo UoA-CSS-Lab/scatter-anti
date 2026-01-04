@@ -147,6 +147,9 @@ export class LabelLayer {
     this.labelCanvas.style.pointerEvents = 'none';
     this.labelCanvas.style.top = '0';
     this.labelCanvas.style.left = '0';
+    // WebGPUキャンバスのCSSサイズをコピー（HiDPI対応）
+    this.labelCanvas.style.width = this.canvas.style.width || `${this.canvas.width}px`;
+    this.labelCanvas.style.height = this.canvas.style.height || `${this.canvas.height}px`;
 
     // 親要素を取得
     const parent = this.canvas.parentElement;
@@ -625,6 +628,9 @@ export class LabelLayer {
       // キャンバスサイズを更新
       this.labelCanvas.width = width;
       this.labelCanvas.height = height;
+      // WebGPUキャンバスのCSSサイズをコピー（HiDPI対応）
+      this.labelCanvas.style.width = this.canvas.style.width;
+      this.labelCanvas.style.height = this.canvas.style.height;
     }
   }
 
