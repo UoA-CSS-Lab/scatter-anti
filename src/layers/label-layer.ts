@@ -453,10 +453,12 @@ export class LabelLayer {
     parent.addEventListener('mousemove', async (e: MouseEvent) => {
       if (!this.labelCanvas) return;
 
-      // マウス位置をキャンバス座標に変換
+      // マウス位置をキャンバス座標に変換（CSS座標から物理座標へスケーリング）
       const rect = this.labelCanvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const scaleX = this.labelCanvas.width / rect.width;
+      const scaleY = this.labelCanvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
 
       // マウス位置にあるラベルを検索
       const labelAtPosition = this.getLabelAtPosition(x, y);
@@ -515,10 +517,12 @@ export class LabelLayer {
 
     // ラベルキャンバス上のクリックイベント
     this.labelCanvas.addEventListener('click', (e: MouseEvent) => {
-      // クリック位置をキャンバス座標に変換
+      // クリック位置をキャンバス座標に変換（CSS座標から物理座標へスケーリング）
       const rect = this.labelCanvas!.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const scaleX = this.labelCanvas!.width / rect.width;
+      const scaleY = this.labelCanvas!.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
 
       // クリック位置のラベルを検索
       const labelAtPosition = this.getLabelAtPosition(x, y);
