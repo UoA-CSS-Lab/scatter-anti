@@ -1,5 +1,5 @@
-import type { ParquetData, ParquetReader } from '../repository.js';
-import { createParquetReader } from '../repository.js';
+import type { ParquetData, ParquetReader } from './repository.js';
+import { createParquetReader } from './repository.js';
 import type { WhereCondition, ScatterPlotError, PointId } from '../types.js';
 import { createError } from '../errors.js';
 
@@ -425,10 +425,10 @@ export class DataLayer {
 
       // インスタンスデータ配列にデータを格納
       const baseIndex = i * 4;
-      floatView[baseIndex + 0] = x;           // position.x (f32)
-      floatView[baseIndex + 1] = y;           // position.y (f32)
+      floatView[baseIndex + 0] = x; // position.x (f32)
+      floatView[baseIndex + 1] = y; // position.y (f32)
       uint32View[baseIndex + 2] = argb >>> 0; // color (u32, ARGB packed)
-      floatView[baseIndex + 3] = size;        // size (f32)
+      floatView[baseIndex + 3] = size; // size (f32)
 
       // キャッシュにデータを保存
       cachedData[i] = {
@@ -442,7 +442,11 @@ export class DataLayer {
     // 現在の表示データを更新
     this.currentVisibleData = cachedData;
 
-    return { instanceData: floatView, rowCount: data.rowCount, visiblePointLimit: this.visiblePointLimit };
+    return {
+      instanceData: floatView,
+      rowCount: data.rowCount,
+      visiblePointLimit: this.visiblePointLimit,
+    };
   }
 
   /**

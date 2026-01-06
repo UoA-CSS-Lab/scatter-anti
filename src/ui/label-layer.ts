@@ -6,7 +6,7 @@ import type {
   LabelIdentifier,
   LabelHoverCallback,
 } from '../types.js';
-import type { DataLayer } from './data-layer.js';
+import type { DataLayer } from '../data/data-layer.js';
 
 /**
  * ラベルレイヤーの初期化オプション

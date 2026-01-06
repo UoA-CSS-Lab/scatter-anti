@@ -1,7 +1,7 @@
-import { WebGPUContext } from '../webgpu-context.js';
-import { scatterVertexShader } from '../shaders.js';
+import { WebGPUContext } from './webgpu-context.js';
+import { scatterVertexShader } from './shaders.js';
 import type { ColorRGBA } from '../types.js';
-import type { ProcessedData } from './data-layer.js';
+import type { ProcessedData } from '../data/data-layer.js';
 
 /**
  * GpuLayerの設定オプション

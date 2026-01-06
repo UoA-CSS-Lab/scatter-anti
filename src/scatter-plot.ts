@@ -6,11 +6,9 @@ import type {
   PointId,
   LabelIdentifier,
 } from './types.js';
-import { DataLayer } from './layers/data-layer.js';
-import { GpuLayer } from './layers/gpu-layer.js';
-import { LabelLayer } from './layers/label-layer.js';
-import type { ProcessedData } from './layers/data-layer.js';
-import type { ParquetData } from './repository.js';
+import { DataLayer, type ProcessedData, type ParquetData } from './data/index.js';
+import { GpuLayer } from './renderer/index.js';
+import { LabelLayer } from './ui/index.js';
 import { EventEmitter } from './event-emitter.js';
 import { createError } from './errors.js';
 
