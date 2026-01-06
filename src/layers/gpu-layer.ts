@@ -114,7 +114,7 @@ export class GpuLayer {
 
     // インスタンスバッファレイアウト（stepMode: 'instance'）
     const instanceBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 28, // 2 floats (位置) + 4 floats (色) + 1 float (サイズ) = 7 floats * 4 bytes
+      arrayStride: 16, // 2 floats (位置) + 1 u32 (色) + 1 float (サイズ) = 4 * 4 bytes
       stepMode: 'instance',
       attributes: [
         {
@@ -124,15 +124,15 @@ export class GpuLayer {
           shaderLocation: 1,
         },
         {
-          // 色
-          format: 'float32x4',
+          // 色 (ARGB packed as u32)
+          format: 'uint32',
           offset: 8,
           shaderLocation: 2,
         },
         {
           // サイズ
           format: 'float32',
-          offset: 24,
+          offset: 12,
           shaderLocation: 3,
         },
       ],
@@ -254,7 +254,7 @@ export class GpuLayer {
       const oldBuffer = this.instanceBuffer;
 
       // 実際のrowCountではなく、全visiblePointLimit用にバッファを割り当て
-      const bufferSize = data.visiblePointLimit * 7 * 4; // ポイントあたり7 floats * floatあたり4 bytes
+      const bufferSize = data.visiblePointLimit * 4 * 4; // ポイントあたり4 values (2 floats + 1 u32 + 1 float) * 4 bytes
 
       this.instanceBuffer = this.context.device.createBuffer({
         size: bufferSize,

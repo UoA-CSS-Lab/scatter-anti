@@ -35,7 +35,7 @@ export interface VisibleBounds {
  * GPU用に処理されたデータ
  */
 export interface ProcessedData {
-  /** インスタンスデータ（位置、色、サイズ）のFloat32Array */
+  /** インスタンスデータ（位置、色、サイズ）のFloat32Array（色はu32としてパック） */
   instanceData: Float32Array;
   /** 行数 */
   rowCount: number;
@@ -383,7 +383,7 @@ export class DataLayer {
 
   /**
    * カラム形式のデータをGPU用インスタンスデータフォーマットに変換する
-   * フォーマット: ポイントごとに [x, y, r, g, b, a, size]
+   * フォーマット: ポイントごとに [x (f32), y (f32), color (u32), size (f32)]
    * @param data ParquetData形式のデータ
    * @returns 処理済みデータ
    */
@@ -404,9 +404,14 @@ export class DataLayer {
       };
     }
 
-    // キャッシュ用配列とインスタンスデータ配列を初期化
+    // キャッシュ用配列を初期化
     const cachedData = new Array<VisibleData>(data.rowCount);
-    const instanceData = new Float32Array(data.rowCount * 7);
+
+    // ArrayBufferを作成し、Float32ArrayとUint32Arrayの両方のビューを取得
+    // フォーマット: [x (f32), y (f32), color (u32), size (f32)] = 4 values * 4 bytes = 16 bytes per point
+    const buffer = new ArrayBuffer(data.rowCount * 16);
+    const floatView = new Float32Array(buffer);
+    const uint32View = new Uint32Array(buffer);
 
     // 各行を処理
     for (let i = 0; i < data.rowCount; i++) {
@@ -418,21 +423,12 @@ export class DataLayer {
       // DuckDBからのBigIntを処理
       const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
 
-      // ARGB整数をRGBA浮動小数点（0-1範囲）に展開
-      // ARGBフォーマット: 0xAARRGGBB
-      const a = ((argb >>> 24) & 0xff) / 255;
-      const r = ((argb >>> 16) & 0xff) / 255;
-      const g = ((argb >>> 8) & 0xff) / 255;
-      const b = (argb & 0xff) / 255;
-
       // インスタンスデータ配列にデータを格納
-      instanceData[i * 7 + 0] = x;
-      instanceData[i * 7 + 1] = y;
-      instanceData[i * 7 + 2] = r;
-      instanceData[i * 7 + 3] = g;
-      instanceData[i * 7 + 4] = b;
-      instanceData[i * 7 + 5] = a;
-      instanceData[i * 7 + 6] = size;
+      const baseIndex = i * 4;
+      floatView[baseIndex + 0] = x;           // position.x (f32)
+      floatView[baseIndex + 1] = y;           // position.y (f32)
+      uint32View[baseIndex + 2] = argb >>> 0; // color (u32, ARGB packed)
+      floatView[baseIndex + 3] = size;        // size (f32)
 
       // キャッシュにデータを保存
       cachedData[i] = {
@@ -446,7 +442,7 @@ export class DataLayer {
     // 現在の表示データを更新
     this.currentVisibleData = cachedData;
 
-    return { instanceData, rowCount: data.rowCount, visiblePointLimit: this.visiblePointLimit };
+    return { instanceData: floatView, rowCount: data.rowCount, visiblePointLimit: this.visiblePointLimit };
   }
 
   /**

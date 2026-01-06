@@ -19,8 +19,17 @@ struct VertexInput {
 // Instance data: point position, color, and size (stepMode: 'instance')
 struct InstanceInput {
   @location(1) pointPosition: vec2<f32>,
-  @location(2) color: vec4<f32>,
+  @location(2) color: u32,  // ARGB packed
   @location(3) size: f32,
+}
+
+// Unpack ARGB u32 to vec4<f32> (RGBA, 0.0-1.0)
+fn unpackColor(argb: u32) -> vec4<f32> {
+  let a = f32((argb >> 24u) & 0xFFu) / 255.0;
+  let r = f32((argb >> 16u) & 0xFFu) / 255.0;
+  let g = f32((argb >> 8u) & 0xFFu) / 255.0;
+  let b = f32(argb & 0xFFu) / 255.0;
+  return vec4<f32>(r, g, b, a);
 }
 
 struct VertexOutput {
@@ -50,7 +59,7 @@ fn vertexMain(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
   );
 
   output.position = clipPos + vec4<f32>(offsetClip, 0.0, 0.0);
-  output.color = instance.color;
+  output.color = unpackColor(instance.color);
 
   // Map quad position (-1 to 1) to texture coordinates (0 to 1)
   output.pointCoord = (vertex.quadPosition + 1.0) * 0.5;
