@@ -23,8 +23,8 @@ export function PointLimitSlider() {
       </label>
       <input
         type="range"
-        min="1000"
-        max="500000"
+        min="10000"
+        max="5000000"
         step="1000"
         value={value}
         onChange={handleChange}
@@ -32,7 +32,7 @@ export function PointLimitSlider() {
       />
       <div className="flex justify-between text-xs text-zinc-500">
         <span>1K</span>
-        <span>500K</span>
+        <span>5M</span>
       </div>
     </div>
   );

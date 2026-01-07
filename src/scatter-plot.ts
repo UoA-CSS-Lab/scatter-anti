@@ -6,7 +6,7 @@ import type {
   PointId,
   LabelIdentifier,
 } from './types.js';
-import { DataLayer, type ProcessedData, type ParquetData } from './data/index.js';
+import { DataLayer, type ParquetData } from './data/index.js';
 import { GpuLayer } from './renderer/index.js';
 import { LabelLayer } from './ui/index.js';
 import { EventEmitter } from './event-emitter.js';
@@ -17,22 +17,8 @@ import { createError } from './errors.js';
  *
  * このクラスは3つの異なるレイヤーのファサード/コーディネーターとして機能する:
  * - DataLayer: データ取得とクエリ管理を担当
- * - GpuLayer: WebGPUレンダリングと変換を管理
+ * - GpuLayer: WebGPUレンダリングと変換を管理（LODと境界計算もGPU側で実行）
  * - LabelLayer: ラベル用の2Dキャンバスオーバーレイを担当
- *
- * @example
- * ```typescript
- * const plot = new ScatterPlot({ ... });
- *
- * // エラーをリッスン
- * plot.on('error', (error) => {
- *   if (error.severity === 'fatal') {
- *     showErrorModal(error.message);
- *   }
- * });
- *
- * await plot.initialize();
- * ```
  */
 export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   // 3つの異なるレイヤー
@@ -53,18 +39,19 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
     // データレイヤーを初期化（Parquetデータの読み込みとクエリを担当）
     this.dataLayer = new DataLayer({
-      visiblePointLimit: options.data.visiblePointLimit,
       sizeSql: options.data.sizeSql,
       colorSql: options.data.colorSql,
       whereConditions: options.data.whereConditions,
       idColumn: options.data.idColumn,
       onError: (error) => this.emitError(error),
+      onDataChanged: () => this.handleDataChanged(),
     });
 
     // GPUレイヤーを初期化（WebGPUレンダリングを担当）
     this.gpuLayer = new GpuLayer({
       canvas: options.canvas,
       backgroundColor: options.gpu?.backgroundColor,
+      visiblePointLimit: options.data.visiblePointLimit,
     });
 
     // ラベルレイヤーを初期化（2Dキャンバスでのラベル描画を担当）
@@ -89,13 +76,11 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async initialize(): Promise<void> {
     try {
-      // 初期データ読み込み用にキャンバスのアスペクト比を取得
-      const aspectRatio = this.gpuLayer.getAspectRatio();
-      // データレイヤーを初期化し、初期データをParquetファイルから読み込む
-      const initialData = await this.dataLayer.initialize(this.dataUrl, aspectRatio);
+      // データレイヤーを初期化し、全データをParquetファイルから読み込む
+      const allPointsData = await this.dataLayer.initialize(this.dataUrl);
 
-      // GPUレイヤーを初期データで初期化
-      await this.gpuLayer.initialize(initialData);
+      // GPUレイヤーを全データで初期化
+      await this.gpuLayer.initialize(allPointsData);
 
       // ラベルレイヤーを初期化（キャンバスオーバーレイを作成）
       this.labelLayer.initialize();
@@ -109,6 +94,26 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     // labelUrlが指定されている場合、ラベルを自動フェッチ
     if (this.labelUrl) {
       await this.loadLabelsFromUrl(this.labelUrl);
+    }
+  }
+
+  /**
+   * データ変更時のハンドラ（sizeSql, colorSql, whereConditions変更時）
+   */
+  private async handleDataChanged(): Promise<void> {
+    try {
+      // 全データを再読み込み
+      const allPointsData = await this.dataLayer.loadAllPoints();
+      // GPUにアップロード
+      this.gpuLayer.uploadAllPoints(allPointsData);
+      // 再レンダリング
+      this.render();
+    } catch (e) {
+      this.emitError(
+        createError('QUERY_FAILED', 'Failed to reload data after options change', {
+          cause: e instanceof Error ? e : undefined,
+        })
+      );
     }
   }
 
@@ -226,20 +231,20 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param options 更新する設定オプション
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
-    // データレイヤーの設定を更新
+    // データレイヤーの設定を更新（変更があればonDataChangedが呼ばれる）
     if (options.data !== undefined) {
       this.dataLayer.updateOptions({
         sizeSql: options.data.sizeSql,
         colorSql: options.data.colorSql,
-        visiblePointLimit: options.data.visiblePointLimit,
         whereConditions: options.data.whereConditions,
       });
     }
 
     // GPUレイヤーの設定を更新
-    if (options.gpu !== undefined) {
+    if (options.gpu !== undefined || options.data?.visiblePointLimit !== undefined) {
       this.gpuLayer.updateOptions({
-        backgroundColor: options.gpu.backgroundColor,
+        backgroundColor: options.gpu?.backgroundColor,
+        visiblePointLimit: options.data?.visiblePointLimit,
       });
     }
 
@@ -266,8 +271,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       });
     }
 
-    // 新しい表示範囲のデータ更新をスケジュール
-    this.scheduleDataUpdate();
+    // 再レンダリング
+    this.render();
   }
 
   /**
@@ -296,11 +301,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     const pan = this.gpuLayer.getPan();
     this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
 
-    // 即座にレンダリング（軽量処理）
+    // 即座にレンダリング
     this.render();
-
-    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
-    this.scheduleDataUpdate();
   }
 
   /**
@@ -343,11 +345,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     const pan = this.gpuLayer.getPan();
     this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
 
-    // 即座にレンダリング（軽量処理）
+    // 即座にレンダリング
     this.render();
-
-    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
-    this.scheduleDataUpdate();
   }
 
   /**
@@ -362,11 +361,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     // ラベルレイヤーのビュー変換を初期値に更新
     this.labelLayer.updateViewTransform(1.0, 0.0, 0.0);
 
-    // 即座にレンダリング（軽量処理）
+    // 即座にレンダリング
     this.render();
-
-    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
-    this.scheduleDataUpdate();
   }
 
   /**
@@ -381,11 +377,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     // ラベルレイヤーのビュー変換を更新
     this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), x, y);
 
-    // 即座にレンダリング（軽量処理）
+    // 即座にレンダリング
     this.render();
-
-    // 新しい表示範囲のポイントをクエリ（スロットリング付き）
-    this.scheduleDataUpdate();
   }
 
   /**
@@ -406,32 +399,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     const currentPan = this.gpuLayer.getPan();
     // 差分を加算して新しいパン位置を設定
     this.setPan(currentPan.x + dx, currentPan.y + dy);
-  }
-
-  /**
-   * 現在のビュー状態に基づいてデータ更新をスケジュールする
-   * ズームやパンが変更されたときに新しい表示範囲のポイントを読み込むために呼ばれる
-   */
-  private scheduleDataUpdate(): void {
-    // 現在のビュー状態を取得
-    const zoom = this.gpuLayer.getZoom();
-    const pan = this.gpuLayer.getPan();
-    const aspectRatio = this.gpuLayer.getAspectRatio();
-
-    // データレイヤーに表示範囲内のポイント更新をスケジュール
-    this.dataLayer.scheduleVisiblePointsUpdate(
-      zoom,
-      pan.x,
-      pan.y,
-      aspectRatio,
-      (data: ProcessedData) => {
-        // 新しいデータでGPUレイヤーのインスタンスバッファを更新
-        this.gpuLayer.updateInstanceBuffer(data);
-
-        // 新しいデータで再レンダリング
-        this.render();
-      }
-    );
   }
 
   /**

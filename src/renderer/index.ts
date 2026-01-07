@@ -1,3 +1,3 @@
-export { GpuLayer } from './gpu-layer.js';
+export { GpuLayer, type AllPointsData } from './gpu-layer.js';
 export { WebGPUContext } from './webgpu-context.js';
-export { scatterVertexShader } from './shaders.js';
+export { scatterVertexShader, filterComputeShader, updateIndirectShader } from './shaders.js';

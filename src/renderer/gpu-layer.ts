@@ -1,7 +1,16 @@
 import { WebGPUContext } from './webgpu-context.js';
-import { scatterVertexShader } from './shaders.js';
+import { scatterVertexShader, filterComputeShader, updateIndirectShader } from './shaders.js';
 import type { ColorRGBA } from '../types.js';
-import type { ProcessedData } from '../data/data-layer.js';
+
+/**
+ * GPU用に処理されたポイントデータ
+ */
+export interface AllPointsData {
+  /** インスタンスデータ (x, y, color, size) の Float32Array */
+  instanceData: Float32Array;
+  /** 全ポイント数 */
+  totalCount: number;
+}
 
 /**
  * GpuLayerの設定オプション
@@ -11,40 +20,69 @@ export interface GpuLayerOptions {
   canvas: HTMLCanvasElement;
   /** 背景色（デフォルト: 透明な黒） */
   backgroundColor?: ColorRGBA;
+  /** 表示可能なポイントの最大数（デフォルト: 5000000） */
+  visiblePointLimit?: number;
 }
+
+// ビューポート境界のマージン（クリップ空間）
+const VIEWPORT_MARGIN = 0.1;
 
 /**
  * WebGPUレンダリングを担当するレイヤー
  * 責務:
  * - WebGPUコンテキストとパイプラインの管理
  * - GPUバッファの作成と管理
- * - ビュー行列変換（ズーム/パン）の処理
- * - レンダーパスの実行
+ * - コンピュートシェーダーによるLODフィルタリング
+ * - Indirect Drawingによるレンダリング
  */
 export class GpuLayer {
   /** WebGPUコンテキスト */
   private context: WebGPUContext;
   /** 描画対象のキャンバス */
   private readonly canvas: HTMLCanvasElement;
+
+  // パイプライン
   /** レンダーパイプライン */
-  private pipeline: GPURenderPipeline | null = null;
+  private renderPipeline: GPURenderPipeline | null = null;
+  /** フィルタリング用コンピュートパイプライン */
+  private filterPipeline: GPUComputePipeline | null = null;
+  /** Indirect Buffer更新用コンピュートパイプライン */
+  private updateIndirectPipeline: GPUComputePipeline | null = null;
+
+  // バッファ
   /** クワッド頂点バッファ（stepMode: 'vertex'） */
   private quadVertexBuffer: GPUBuffer | null = null;
-  /** インスタンスデータバッファ（位置+色、stepMode: 'instance'） */
-  private instanceBuffer: GPUBuffer | null = null;
+  /** 全ポイントデータバッファ (Storage) */
+  private allPointsBuffer: GPUBuffer | null = null;
+  /** 可視ポイントインデックスバッファ (Storage) */
+  private visibleIndicesBuffer: GPUBuffer | null = null;
+  /** アトミックカウンターバッファ (Storage) */
+  private atomicCounterBuffer: GPUBuffer | null = null;
+  /** Indirect Drawingパラメータバッファ */
+  private indirectBuffer: GPUBuffer | null = null;
   /** インデックスバッファ */
   private indexBuffer: GPUBuffer | null = null;
-  /** ユニフォームバッファ */
-  private uniformBuffer: GPUBuffer | null = null;
-  /** バインドグループ */
-  private bindGroup: GPUBindGroup | null = null;
+  /** レンダリング用ユニフォームバッファ */
+  private renderUniformBuffer: GPUBuffer | null = null;
+  /** コンピュート用ユニフォームバッファ */
+  private computeUniformBuffer: GPUBuffer | null = null;
 
-  /** 現在の行数 */
-  private rowCount: number = 0;
+  // バインドグループ
+  /** レンダリング用バインドグループ */
+  private renderBindGroup: GPUBindGroup | null = null;
+  /** フィルタリング用バインドグループ */
+  private filterBindGroup: GPUBindGroup | null = null;
+  /** Indirect更新用バインドグループ */
+  private updateIndirectBindGroup: GPUBindGroup | null = null;
+
+  /** 全ポイント数 */
+  private totalPointCount: number = 0;
   /** 背景色 */
   private backgroundColor: ColorRGBA = { r: 0, g: 0, b: 0, a: 0 };
-  /** インスタンスバッファの現在の容量（ポイント数） */
-  private instanceBufferCapacity: number = 0;
+  /** 表示可能なポイントの最大数 */
+  private visiblePointLimit: number = 5000000;
+  /** フィルタリング結果が有効かどうか */
+  private filterResultValid: boolean = false;
 
   // ズームとパンの状態
   /** 現在のズームレベル */
@@ -53,9 +91,6 @@ export class GpuLayer {
   private panX: number = 0.0;
   /** 現在のY方向パンオフセット */
   private panY: number = 0.0;
-
-  /** インデックス数 */
-  private indexCount: number = 0;
 
   /**
    * GpuLayerインスタンスを作成する
@@ -67,34 +102,59 @@ export class GpuLayer {
     this.context = new WebGPUContext();
     // 背景色を設定（デフォルト: 透明な黒）
     this.backgroundColor = options.backgroundColor ?? { r: 0, g: 0, b: 0, a: 0 };
+    // 表示可能なポイントの最大数を設定（デフォルト: 500万）
+    this.visiblePointLimit = options.visiblePointLimit ?? 5000000;
   }
 
   /**
    * WebGPUを初期化し、レンダリングリソースを作成する
    * @param initialData 初期データ
    */
-  async initialize(initialData: ProcessedData): Promise<void> {
+  async initialize(initialData: AllPointsData): Promise<void> {
     // WebGPUコンテキストを初期化
     await this.context.initialize(this.canvas);
-    // レンダーパイプラインを作成
-    this.createPipeline();
+    // パイプラインを作成
+    this.createPipelines();
     // バッファを作成
     await this.createBuffers(initialData);
     // バインドグループを作成
-    this.createBindGroup();
+    this.createBindGroups();
   }
 
   /**
-   * レンダーパイプラインを作成する
+   * パイプラインを作成する
    */
-  private createPipeline(): void {
-    // デバイスがない場合はエラー
+  private createPipelines(): void {
     if (!this.context.device) {
       throw new Error('WebGPU device not initialized');
     }
 
-    // シェーダーモジュールを作成
-    const shaderModule = this.context.device.createShaderModule({
+    // フィルタリング用コンピュートパイプライン
+    const filterShaderModule = this.context.device.createShaderModule({
+      code: filterComputeShader,
+    });
+    this.filterPipeline = this.context.device.createComputePipeline({
+      layout: 'auto',
+      compute: {
+        module: filterShaderModule,
+        entryPoint: 'main',
+      },
+    });
+
+    // Indirect Buffer更新用コンピュートパイプライン
+    const updateIndirectShaderModule = this.context.device.createShaderModule({
+      code: updateIndirectShader,
+    });
+    this.updateIndirectPipeline = this.context.device.createComputePipeline({
+      layout: 'auto',
+      compute: {
+        module: updateIndirectShaderModule,
+        entryPoint: 'main',
+      },
+    });
+
+    // レンダーパイプライン
+    const renderShaderModule = this.context.device.createShaderModule({
       code: scatterVertexShader,
     });
 
@@ -104,7 +164,6 @@ export class GpuLayer {
       stepMode: 'vertex',
       attributes: [
         {
-          // クワッド位置
           format: 'float32x2',
           offset: 0,
           shaderLocation: 0,
@@ -112,42 +171,15 @@ export class GpuLayer {
       ],
     };
 
-    // インスタンスバッファレイアウト（stepMode: 'instance'）
-    const instanceBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 16, // 2 floats (位置) + 1 u32 (色) + 1 float (サイズ) = 4 * 4 bytes
-      stepMode: 'instance',
-      attributes: [
-        {
-          // ポイント位置
-          format: 'float32x2',
-          offset: 0,
-          shaderLocation: 1,
-        },
-        {
-          // 色 (ARGB packed as u32)
-          format: 'uint32',
-          offset: 8,
-          shaderLocation: 2,
-        },
-        {
-          // サイズ
-          format: 'float32',
-          offset: 12,
-          shaderLocation: 3,
-        },
-      ],
-    };
-
-    // レンダーパイプラインを作成
-    this.pipeline = this.context.device.createRenderPipeline({
+    this.renderPipeline = this.context.device.createRenderPipeline({
       layout: 'auto',
       vertex: {
-        module: shaderModule,
+        module: renderShaderModule,
         entryPoint: 'vertexMain',
-        buffers: [quadVertexBufferLayout, instanceBufferLayout],
+        buffers: [quadVertexBufferLayout],
       },
       fragment: {
-        module: shaderModule,
+        module: renderShaderModule,
         entryPoint: 'fragmentMain',
         targets: [
           {
@@ -174,15 +206,15 @@ export class GpuLayer {
   }
 
   /**
-   * 頂点バッファとユニフォームバッファを作成する
+   * バッファを作成する
    * @param data 初期データ
    */
-  private async createBuffers(data: ProcessedData): Promise<void> {
-    // デバイスがない場合は終了
+  private async createBuffers(data: AllPointsData): Promise<void> {
     if (!this.context.device) return;
 
-    // クワッド頂点バッファを作成（全インスタンスで共有、一度だけ作成）
-    // クワッド頂点: (-1,-1), (1,-1), (-1,1), (1,1)
+    this.totalPointCount = data.totalCount;
+
+    // クワッド頂点バッファ
     const quadVertices = new Float32Array([
       -1.0,
       -1.0, // 左下
@@ -193,131 +225,173 @@ export class GpuLayer {
       1.0,
       1.0, // 右上
     ]);
-
-    // クワッド頂点バッファを作成
     this.quadVertexBuffer = this.context.device.createBuffer({
       size: quadVertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
-    // データを書き込み
     this.context.device.queue.writeBuffer(this.quadVertexBuffer, 0, quadVertices);
 
-    // 提供されたデータでインスタンスバッファを作成
-    this.updateInstanceBuffer(data);
+    // 全ポイントデータバッファ (Storage)
+    const pointsBufferSize = data.totalCount * 16; // 16 bytes per point
+    this.allPointsBuffer = this.context.device.createBuffer({
+      size: pointsBufferSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    this.context.device.queue.writeBuffer(
+      this.allPointsBuffer,
+      0,
+      data.instanceData.buffer,
+      data.instanceData.byteOffset,
+      data.instanceData.byteLength
+    );
 
-    // 単一クワッド用のインデックスバッファを作成（全インスタンスで使用）
-    // クワッドを形成する2つの三角形: (0,1,2) と (2,1,3)
+    // 可視インデックスバッファ (Storage)
+    const indicesBufferSize = data.totalCount * 4; // 4 bytes per index
+    this.visibleIndicesBuffer = this.context.device.createBuffer({
+      size: indicesBufferSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
+    });
+
+    // アトミックカウンターバッファ
+    this.atomicCounterBuffer = this.context.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    // Indirect Drawingパラメータバッファ (20 bytes for DrawIndexedIndirect)
+    this.indirectBuffer = this.context.device.createBuffer({
+      size: 20,
+      usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    // インデックスバッファ
     const indices = new Uint16Array([0, 1, 2, 2, 1, 3]);
-
     this.indexBuffer = this.context.device.createBuffer({
       size: indices.byteLength,
       usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
     this.context.device.queue.writeBuffer(this.indexBuffer, 0, indices);
-    this.indexCount = indices.length;
 
-    // ユニフォームバッファを作成（ビュー行列 + ズーム + ビューポートサイズ + パディング）
-    // WebGPUはユニフォームバッファサイズが16バイトの倍数であることを要求
-    // mat4x4 (64 bytes) + zoom (4) + viewportWidth (4) + viewportHeight (4) + padding (4) = 80 bytes
-    // アライメントのため96バイトに切り上げ（24 floats）
-    const uniformData = new Float32Array(24);
-    const viewMatrix = this.createViewMatrix();
-    uniformData.set(viewMatrix, 0);
-    uniformData[16] = this.zoom;
-    uniformData[17] = this.canvas.width;
-    uniformData[18] = this.canvas.height;
-
-    this.uniformBuffer = this.context.device.createBuffer({
-      size: uniformData.byteLength,
+    // レンダリング用ユニフォームバッファ (96 bytes)
+    this.renderUniformBuffer = this.context.device.createBuffer({
+      size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    this.context.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+
+    // コンピュート用ユニフォームバッファ
+    // worldBoundsMin (8) + worldBoundsMax (8) + lodThreshold (4) + totalPoints (4) + padding (8) = 32 bytes
+    this.computeUniformBuffer = this.context.device.createBuffer({
+      size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // 初期ユニフォームを更新
+    this.updateUniforms();
   }
 
   /**
-   * 新しいデータでインスタンスバッファを更新する
-   * @param data 処理済みデータ
+   * バインドグループを作成する
    */
-  updateInstanceBuffer(data: ProcessedData): void {
-    // デバイスがない場合は終了
-    if (!this.context.device) return;
-
-    // 行数を更新
-    this.rowCount = data.rowCount;
-
-    // インスタンスデータのベースコピーを保存（ホバースケーリングなし）
-    const baseInstanceData = new Float32Array(data.instanceData);
-
-    // visiblePointLimitが変更された場合のみバッファを再割り当て
-    if (this.instanceBufferCapacity !== data.visiblePointLimit) {
-      // 新しいバッファの準備ができるまで古いバッファを保持
-      const oldBuffer = this.instanceBuffer;
-
-      // 実際のrowCountではなく、全visiblePointLimit用にバッファを割り当て
-      const bufferSize = data.visiblePointLimit * 4 * 4; // ポイントあたり4 values (2 floats + 1 u32 + 1 float) * 4 bytes
-
-      this.instanceBuffer = this.context.device.createBuffer({
-        size: bufferSize,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
-
-      this.instanceBufferCapacity = data.visiblePointLimit;
-
-      // 新しいバッファ作成後に古いバッファを破棄
-      if (oldBuffer) {
-        oldBuffer.destroy();
-      }
+  private createBindGroups(): void {
+    if (
+      !this.context.device ||
+      !this.filterPipeline ||
+      !this.updateIndirectPipeline ||
+      !this.renderPipeline ||
+      !this.allPointsBuffer ||
+      !this.visibleIndicesBuffer ||
+      !this.atomicCounterBuffer ||
+      !this.indirectBuffer ||
+      !this.computeUniformBuffer ||
+      !this.renderUniformBuffer
+    ) {
+      return;
     }
 
-    // バッファにデータを書き込み（容量が変更されていない場合は既存バッファを再利用）
-    if (this.instanceBuffer && baseInstanceData) {
-      this.context.device.queue.writeBuffer(
-        this.instanceBuffer,
-        0,
-        baseInstanceData as BufferSource
-      );
-    }
-  }
-
-  /**
-   * ユニフォーム用のバインドグループを作成する
-   */
-  private createBindGroup(): void {
-    // 必要なリソースがない場合は終了
-    if (!this.context.device || !this.pipeline || !this.uniformBuffer) return;
-
-    // バインドグループを作成
-    this.bindGroup = this.context.device.createBindGroup({
-      layout: this.pipeline.getBindGroupLayout(0),
+    // フィルタリング用バインドグループ
+    this.filterBindGroup = this.context.device.createBindGroup({
+      layout: this.filterPipeline.getBindGroupLayout(0),
       entries: [
-        {
-          binding: 0,
-          resource: {
-            buffer: this.uniformBuffer,
-          },
-        },
+        { binding: 0, resource: { buffer: this.allPointsBuffer } },
+        { binding: 1, resource: { buffer: this.visibleIndicesBuffer } },
+        { binding: 2, resource: { buffer: this.atomicCounterBuffer } },
+        { binding: 3, resource: { buffer: this.computeUniformBuffer } },
+      ],
+    });
+
+    // Indirect更新用バインドグループ
+    this.updateIndirectBindGroup = this.context.device.createBindGroup({
+      layout: this.updateIndirectPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.atomicCounterBuffer } },
+        { binding: 1, resource: { buffer: this.indirectBuffer } },
+      ],
+    });
+
+    // レンダリング用バインドグループ
+    this.renderBindGroup = this.context.device.createBindGroup({
+      layout: this.renderPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.renderUniformBuffer } },
+        { binding: 1, resource: { buffer: this.allPointsBuffer } },
+        { binding: 2, resource: { buffer: this.visibleIndicesBuffer } },
       ],
     });
   }
 
   /**
-   * ズームとパン変換を含むビュー行列を作成する
-   * @returns ビュー行列のFloat32Array
+   * 全ポイントデータをアップロードする
+   * @param data 新しいポイントデータ
+   */
+  uploadAllPoints(data: AllPointsData): void {
+    if (!this.context.device) return;
+
+    const newTotalCount = data.totalCount;
+
+    // バッファサイズが足りない場合は再作成
+    if (newTotalCount > this.totalPointCount) {
+      // 古いバッファを破棄
+      this.allPointsBuffer?.destroy();
+      this.visibleIndicesBuffer?.destroy();
+
+      // 新しいバッファを作成
+      const pointsBufferSize = newTotalCount * 16;
+      this.allPointsBuffer = this.context.device.createBuffer({
+        size: pointsBufferSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+
+      const indicesBufferSize = newTotalCount * 4;
+      this.visibleIndicesBuffer = this.context.device.createBuffer({
+        size: indicesBufferSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
+      });
+
+      // バインドグループを再作成
+      this.createBindGroups();
+    }
+
+    this.totalPointCount = newTotalCount;
+    // データが変わったのでフィルタ結果を無効化
+    this.filterResultValid = false;
+
+    // データをアップロード
+    if (this.allPointsBuffer) {
+      this.context.device.queue.writeBuffer(
+        this.allPointsBuffer,
+        0,
+        data.instanceData.buffer,
+        data.instanceData.byteOffset,
+        data.instanceData.byteLength
+      );
+    }
+  }
+
+  /**
+   * ビュー行列を作成する
    */
   private createViewMatrix(): Float32Array {
-    // 1:1のワールド空間を維持するためにアスペクト比補正を計算
     const aspectRatio = this.canvas.width / this.canvas.height;
-
-    // アスペクト比補正を含むスケール+平行移動の結合行列を作成
-    // スケール行列:    [zoom/aspect, 0, 0, 0]  <- Xはアスペクト比でスケール
-    //                  [0, zoom, 0, 0]
-    //                  [0, 0, 1, 0]
-    //                  [0, 0, 0, 1]
-    // 平行移動:        [1, 0, 0, 0]
-    //                  [0, 1, 0, 0]
-    //                  [0, 0, 1, 0]
-    //                  [panX, panY, 0, 1]
-
     return new Float32Array([
       this.zoom / aspectRatio,
       0,
@@ -339,108 +413,205 @@ export class GpuLayer {
   }
 
   /**
-   * ユニフォームのみを更新する
+   * LOD閾値を計算する
+   * ズームレベルに応じて表示するポイント数を制限する
+   */
+  private calculateLodThreshold(): number {
+    // 画面上に表示する最大ポイント数の目標値
+    let targetPoints = this.visiblePointLimit;
+
+    // ズームアウト（zoom < 1.0）時は、画面内に大量の点が密集するため、
+    // 重なり合いによるフラグメントシェーダーの過負荷を防ぐため目標点数を減らす。
+    if (this.zoom < 1.0) {
+      targetPoints = Math.floor(this.visiblePointLimit * Math.pow(this.zoom, 0.6));
+      // 最低限の分布が見えるライン（visiblePointLimitの10%）
+      targetPoints = Math.max(Math.floor(this.visiblePointLimit * 0.1), targetPoints);
+    }
+
+    // 全ポイント数が目標以下なら常に全表示（フィルタリング不要）
+    if (this.totalPointCount <= targetPoints) {
+      return 0xffffffff;
+    }
+
+    // ズームレベルに基づく表示領域の割合（概算）
+    // zoom=1.0を一単位として、ズームするほど表示範囲は狭くなる
+    const visibleAreaFraction = 1.0 / (this.zoom * this.zoom);
+
+    // その領域に含まれると予想されるポイント数
+    const expectedPointsInView = Math.min(
+      this.totalPointCount,
+      this.totalPointCount * visibleAreaFraction
+    );
+
+    // 目標内なら間引きなし
+    if (expectedPointsInView <= targetPoints) {
+      return 0xffffffff;
+    }
+
+    // 目標点数に抑えるための維持率 (Keep Ratio)
+    let keepRatio = targetPoints / expectedPointsInView;
+
+    // 1.0（全表示）を超えないようにクランプ
+    keepRatio = Math.min(1.0, keepRatio);
+
+    // u32の最大値に対する閾値を計算
+    return Math.floor(0xffffffff * keepRatio);
+  }
+
+  /**
+   * ユニフォームを更新する
    */
   updateUniforms(): void {
-    // 必要なリソースがない場合は終了
-    if (!this.context.device || !this.uniformBuffer) return;
+    if (!this.context.device || !this.renderUniformBuffer || !this.computeUniformBuffer) {
+      return;
+    }
 
-    // createBuffersのバッファサイズと一致させる必要がある（96 bytes = 24 floats）
-    const uniformData = new Float32Array(24);
+    // ビューが変わったのでフィルタ結果を無効化
+    this.filterResultValid = false;
+
     const viewMatrix = this.createViewMatrix();
-    uniformData.set(viewMatrix, 0);
-    uniformData[16] = this.zoom;
-    uniformData[17] = this.canvas.width;
-    uniformData[18] = this.canvas.height;
 
-    // ユニフォームバッファにデータを書き込み
-    this.context.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
+    // レンダリング用ユニフォーム
+    const renderUniformData = new Float32Array(24);
+    renderUniformData.set(viewMatrix, 0);
+    // Vertex Shaderで pow(zoom, 0.3) を計算するコストを避けるため、CPUで事前に計算して渡す
+    // シェーダー側では zoomScale として受け取る
+    renderUniformData[16] = Math.pow(this.zoom, 0.3);
+    renderUniformData[17] = this.canvas.width;
+    renderUniformData[18] = this.canvas.height;
+    this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
+
+    // コンピュート用ユニフォーム
+    // 逆変換を行ってワールド空間での境界を計算し、シェーダー内での行列演算を削除する
+    const aspectRatio = this.canvas.width / this.canvas.height;
+    const clipMinX = -1 - VIEWPORT_MARGIN;
+    const clipMinY = -1 - VIEWPORT_MARGIN;
+    const clipMaxX = 1 + VIEWPORT_MARGIN;
+    const clipMaxY = 1 + VIEWPORT_MARGIN;
+
+    // clip = world * scale + pan
+    // world = (clip - pan) / scale
+    const scaleX = this.zoom / aspectRatio;
+    const scaleY = this.zoom;
+
+    const worldMinX = (clipMinX - this.panX) / scaleX;
+    const worldMaxX = (clipMaxX - this.panX) / scaleX;
+    const worldMinY = (clipMinY - this.panY) / scaleY;
+    const worldMaxY = (clipMaxY - this.panY) / scaleY;
+
+    const computeUniformData = new ArrayBuffer(32);
+    const computeFloatView = new Float32Array(computeUniformData);
+    const computeUint32View = new Uint32Array(computeUniformData);
+
+    computeFloatView[0] = worldMinX;
+    computeFloatView[1] = worldMinY;
+    computeFloatView[2] = worldMaxX;
+    computeFloatView[3] = worldMaxY;
+    computeUint32View[4] = this.calculateLodThreshold(); // lodThreshold
+    computeUint32View[5] = this.totalPointCount; // totalPoints
+    // padding: [6], [7]
+
+    this.context.device.queue.writeBuffer(this.computeUniformBuffer, 0, computeUniformData);
   }
 
   /**
    * 散布図をレンダリングする
    */
   render(): void {
-    // 必要なリソースがすべてあるかチェック
     if (
       !this.context.device ||
       !this.context.context ||
-      !this.pipeline ||
+      !this.filterPipeline ||
+      !this.updateIndirectPipeline ||
+      !this.renderPipeline ||
       !this.quadVertexBuffer ||
-      !this.instanceBuffer ||
-      !this.bindGroup
+      !this.filterBindGroup ||
+      !this.updateIndirectBindGroup ||
+      !this.renderBindGroup ||
+      !this.atomicCounterBuffer ||
+      !this.indirectBuffer
     ) {
       return;
     }
 
-    // コマンドエンコーダを作成
     const commandEncoder = this.context.device.createCommandEncoder();
-    // 現在のテクスチャのビューを取得
-    const textureView = this.context.context.getCurrentTexture().createView();
 
-    // レンダーパスを開始
-    const renderPass = commandEncoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: textureView,
-          clearValue: {
-            r: this.backgroundColor.r,
-            g: this.backgroundColor.g,
-            b: this.backgroundColor.b,
-            a: this.backgroundColor.a,
+    // ビューが変わった時だけフィルタリングを再計算
+    if (!this.filterResultValid) {
+      // カウンターをリセット
+      this.context.device.queue.writeBuffer(this.atomicCounterBuffer, 0, new Uint32Array([0]));
+
+      // コンピュートパス: フィルタリング
+      {
+        const computePass = commandEncoder.beginComputePass();
+        computePass.setPipeline(this.filterPipeline);
+        computePass.setBindGroup(0, this.filterBindGroup);
+        const workgroupCount = Math.ceil(this.totalPointCount / 256);
+        computePass.dispatchWorkgroups(workgroupCount);
+        computePass.end();
+      }
+
+      // コンピュートパス: Indirect Buffer更新
+      {
+        const computePass = commandEncoder.beginComputePass();
+        computePass.setPipeline(this.updateIndirectPipeline);
+        computePass.setBindGroup(0, this.updateIndirectBindGroup);
+        computePass.dispatchWorkgroups(1);
+        computePass.end();
+      }
+
+      this.filterResultValid = true;
+    }
+
+    // レンダーパス
+    {
+      const textureView = this.context.context.getCurrentTexture().createView();
+      const renderPass = commandEncoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: textureView,
+            clearValue: {
+              r: this.backgroundColor.r,
+              g: this.backgroundColor.g,
+              b: this.backgroundColor.b,
+              a: this.backgroundColor.a,
+            },
+            loadOp: 'clear',
+            storeOp: 'store',
           },
-          loadOp: 'clear',
-          storeOp: 'store',
-        },
-      ],
-    });
+        ],
+      });
 
-    // パイプラインを設定
-    renderPass.setPipeline(this.pipeline);
-    // 頂点バッファを設定（スロット0: クワッド頂点）
-    renderPass.setVertexBuffer(0, this.quadVertexBuffer);
-    // 頂点バッファを設定（スロット1: インスタンスデータ）
-    renderPass.setVertexBuffer(1, this.instanceBuffer);
-    // インデックスバッファを設定
-    renderPass.setIndexBuffer(this.indexBuffer!, 'uint16');
-    // バインドグループを設定
-    renderPass.setBindGroup(0, this.bindGroup);
-    // インデックス付き描画を実行
-    renderPass.drawIndexed(this.indexCount, this.rowCount, 0, 0, 0);
-    // レンダーパスを終了
-    renderPass.end();
+      renderPass.setPipeline(this.renderPipeline);
+      renderPass.setVertexBuffer(0, this.quadVertexBuffer);
+      renderPass.setIndexBuffer(this.indexBuffer!, 'uint16');
+      renderPass.setBindGroup(0, this.renderBindGroup);
+      renderPass.drawIndexedIndirect(this.indirectBuffer, 0);
+      renderPass.end();
+    }
 
-    // コマンドバッファをGPUキューに送信
     this.context.device.queue.submit([commandEncoder.finish()]);
   }
 
   /**
    * キャンバスをリサイズし、ビューポートを更新する
-   * @param width 新しい幅
-   * @param height 新しい高さ
    */
   resize(width: number, height: number): void {
-    // キャンバスサイズを更新
     this.canvas.width = width;
     this.canvas.height = height;
-    // シェーダー内のビューポートサイズを更新
     this.updateUniforms();
   }
 
   /**
    * ズームレベルを設定する
-   * @param zoom ズームレベル
    */
   setZoom(zoom: number): void {
-    // 0.01xから100xの間にクランプ
     this.zoom = Math.max(0.01, Math.min(100, zoom));
-    // ユニフォームを更新
     this.updateUniforms();
   }
 
   /**
    * 現在のズームレベルを取得する
-   * @returns 現在のズームレベル
    */
   getZoom(): number {
     return this.zoom;
@@ -448,19 +619,15 @@ export class GpuLayer {
 
   /**
    * パンオフセットを設定する
-   * @param x X方向のパンオフセット
-   * @param y Y方向のパンオフセット
    */
   setPan(x: number, y: number): void {
     this.panX = x;
     this.panY = y;
-    // ユニフォームを更新
     this.updateUniforms();
   }
 
   /**
    * 現在のパンオフセットを取得する
-   * @returns x, y座標を含むオブジェクト
    */
   getPan(): { x: number; y: number } {
     return { x: this.panX, y: this.panY };
@@ -468,7 +635,6 @@ export class GpuLayer {
 
   /**
    * キャンバスのアスペクト比（幅/高さ）を取得する
-   * @returns アスペクト比
    */
   getAspectRatio(): number {
     return this.canvas.width / this.canvas.height;
@@ -476,44 +642,36 @@ export class GpuLayer {
 
   /**
    * 指定した画面座標を中心にズームする
-   * @param newZoom 新しいズームレベル
-   * @param screenX 画面X座標
-   * @param screenY 画面Y座標
    */
   zoomToPoint(newZoom: number, screenX: number, screenY: number): void {
-    // 新しいズームレベルをクランプ
     const clampedZoom = Math.max(0.01, Math.min(100, newZoom));
-
-    // 座標変換用のアスペクト比を計算
     const aspectRatio = this.canvas.width / this.canvas.height;
 
-    // スクリーン座標を正規化デバイス座標（-1から1）に変換
     const ndcX = (screenX / this.canvas.width) * 2 - 1;
-    const ndcY = -((screenY / this.canvas.height) * 2 - 1); // Y軸を反転
+    const ndcY = -((screenY / this.canvas.height) * 2 - 1);
 
-    // ズーム前のNDCをワールド座標に変換（アスペクト比を考慮）
     const worldXBefore = ((ndcX - this.panX) * aspectRatio) / this.zoom;
     const worldYBefore = (ndcY - this.panY) / this.zoom;
 
-    // ズームを更新
     this.zoom = clampedZoom;
 
-    // ワールドポイントが同じスクリーン位置に保たれるように新しいパンを計算
     this.panX = ndcX - (worldXBefore * this.zoom) / aspectRatio;
     this.panY = ndcY - worldYBefore * this.zoom;
 
-    // ユニフォームを更新
     this.updateUniforms();
   }
 
   /**
    * GPUレイヤーの設定オプションを更新する
-   * @param options 更新する設定オプション
    */
   updateOptions(options: Partial<GpuLayerOptions>): void {
-    // 背景色が指定されていれば更新
     if (options.backgroundColor !== undefined) {
       this.backgroundColor = options.backgroundColor;
+    }
+    if (options.visiblePointLimit !== undefined) {
+      this.visiblePointLimit = options.visiblePointLimit;
+      // LOD閾値が変わるのでフィルタ結果を無効化
+      this.filterResultValid = false;
     }
   }
 
@@ -521,24 +679,14 @@ export class GpuLayer {
    * リソースを破棄する
    */
   destroy(): void {
-    // クワッド頂点バッファを破棄
-    if (this.quadVertexBuffer) {
-      this.quadVertexBuffer.destroy();
-    }
-    // インスタンスバッファを破棄
-    if (this.instanceBuffer) {
-      this.instanceBuffer.destroy();
-    }
-    // インデックスバッファを破棄
-    if (this.indexBuffer) {
-      this.indexBuffer.destroy();
-    }
-    // ユニフォームバッファを破棄
-    if (this.uniformBuffer) {
-      this.uniformBuffer.destroy();
-    }
-
-    // WebGPUコンテキストを破棄
+    this.quadVertexBuffer?.destroy();
+    this.allPointsBuffer?.destroy();
+    this.visibleIndicesBuffer?.destroy();
+    this.atomicCounterBuffer?.destroy();
+    this.indirectBuffer?.destroy();
+    this.indexBuffer?.destroy();
+    this.renderUniformBuffer?.destroy();
+    this.computeUniformBuffer?.destroy();
     this.context.destroy();
   }
 }

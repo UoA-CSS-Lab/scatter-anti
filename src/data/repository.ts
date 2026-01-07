@@ -116,29 +116,6 @@ export class ParquetReader {
   }
 
   /**
-   * テーブルのスキーマ（カラム名一覧）を取得する
-   * @returns カラム名の配列
-   */
-  async getSchema(): Promise<string[]> {
-    // 初期化チェック
-    if (!this.conn) {
-      throw new Error('Database not initialized. Call initialize() first.');
-    }
-
-    // DESCRIBEクエリでテーブル構造を取得
-    const result = await this.conn.query('DESCRIBE parquet_data');
-    const columns: string[] = [];
-
-    // 各行からカラム名を抽出
-    for (let i = 0; i < result.numRows; i++) {
-      const nameColumn = result.getChildAt(0);
-      columns.push(nameColumn?.get(i));
-    }
-
-    return columns;
-  }
-
-  /**
    * GeoJSONデータをテーブルとして読み込む
    * @param geojson GeoJSON FeatureCollectionオブジェクト
    */
