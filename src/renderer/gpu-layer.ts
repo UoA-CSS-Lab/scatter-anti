@@ -98,6 +98,10 @@ export class GpuLayer {
   private panX: number = 0.0;
   /** 現在のY方向パンオフセット */
   private panY: number = 0.0;
+  /** グローバル透明度 (0.0-1.0) */
+  private pointAlpha: number = 1.0;
+  /** グローバルサイズスケール */
+  private pointSizeScale: number = 1.0;
 
   /**
    * GpuLayerインスタンスを作成する
@@ -497,6 +501,8 @@ export class GpuLayer {
     renderUniformData[16] = Math.pow(this.zoom, 0.3);
     renderUniformData[17] = this.canvas.width;
     renderUniformData[18] = this.canvas.height;
+    renderUniformData[19] = this.pointAlpha;
+    renderUniformData[20] = this.pointSizeScale;
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
     // コンピュート用ユニフォーム
@@ -772,6 +778,38 @@ export class GpuLayer {
     this.gpuFilterConditions = [];
     this.filterResultValid = false;
     this.updateUniforms();
+  }
+
+  /**
+   * グローバル透明度を設定する
+   * @param alpha 透明度 (0.0-1.0)
+   */
+  setPointAlpha(alpha: number): void {
+    this.pointAlpha = Math.max(0, Math.min(1, alpha));
+    this.updateUniforms();
+  }
+
+  /**
+   * 現在のグローバル透明度を取得する
+   */
+  getPointAlpha(): number {
+    return this.pointAlpha;
+  }
+
+  /**
+   * グローバルサイズスケールを設定する
+   * @param scale サイズスケール (0.01以上)
+   */
+  setPointSizeScale(scale: number): void {
+    this.pointSizeScale = Math.max(0.01, scale);
+    this.updateUniforms();
+  }
+
+  /**
+   * 現在のグローバルサイズスケールを取得する
+   */
+  getPointSizeScale(): number {
+    return this.pointSizeScale;
   }
 
   /**

@@ -39,6 +39,10 @@ interface ScatterPlotContextValue {
   updateLabelFilter: (searchText: string) => void;
   /** GPU側で時間範囲フィルターを適用 */
   updateTimeFilter: (min: number | null, max: number | null) => Promise<void>;
+  /** グローバル透明度を設定 */
+  updatePointAlpha: (alpha: number) => void;
+  /** グローバルサイズスケールを設定 */
+  updatePointSizeScale: (scale: number) => void;
   // Hover control
   setPointHover: (pointId: PointId) => Promise<boolean>;
   setLabelHover: (identifier: LabelIdentifier) => boolean;
@@ -311,6 +315,16 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const updatePointAlpha = useCallback((alpha: number) => {
+    if (!plotRef.current) return;
+    plotRef.current.setPointAlpha(alpha);
+  }, []);
+
+  const updatePointSizeScale = useCallback((scale: number) => {
+    if (!plotRef.current) return;
+    plotRef.current.setPointSizeScale(scale);
+  }, []);
+
   // List data methods
   const fetchPoints = useCallback(
     async (page: number, pageSize: number): Promise<PointListItem[]> => {
@@ -364,6 +378,8 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         updatePointLimit,
         updateLabelFilter,
         updateTimeFilter,
+        updatePointAlpha,
+        updatePointSizeScale,
         setPointHover,
         setLabelHover,
         clearAllHover,

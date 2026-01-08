@@ -167,7 +167,11 @@ struct Uniforms {
   zoomScale: f32,
   viewportWidth: f32,
   viewportHeight: f32,
-  padding: f32,
+  pointAlpha: f32,
+  pointSizeScale: f32,
+  _padding1: f32,
+  _padding2: f32,
+  _padding3: f32,
 }
 
 struct VertexOutput {
@@ -209,9 +213,10 @@ fn vertexMain(
   let pixelToClipY = 2.0 / uniforms.viewportHeight;
   let zoomScale = uniforms.zoomScale;
 
+  let scaledSize = point.size * uniforms.pointSizeScale;
   let offsetClip = vec2<f32>(
-    quadPosition.x * point.size * pixelToClipX * zoomScale,
-    quadPosition.y * point.size * pixelToClipY * zoomScale
+    quadPosition.x * scaledSize * pixelToClipX * zoomScale,
+    quadPosition.y * scaledSize * pixelToClipY * zoomScale
   );
 
   output.position = clipPos + vec4<f32>(offsetClip, 0.0, 0.0);
@@ -245,6 +250,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   // 二乗空間での0.02幅は視覚的な外観にほぼ一致
   let alpha = smoothstep(0.25, 0.23, distSq);
 
-  return vec4<f32>(input.color.rgb, input.color.a * alpha);
+  return vec4<f32>(input.color.rgb, input.color.a * alpha * uniforms.pointAlpha);
 }
 `;

@@ -1,6 +1,8 @@
 'use client';
 
 import { PointSizeSlider } from './PointSizeSlider';
+import { PointAlphaSlider } from './PointAlphaSlider';
+import { PointSizeScaleSlider } from './PointSizeScaleSlider';
 import { ColorExpressionInput } from './ColorExpressionInput';
 import { SearchBox } from './SearchBox';
 import { LabelFilterInput } from './LabelFilterInput';
@@ -18,6 +20,8 @@ export function ControlPanel() {
       </div>
       <PointLimitSlider />
       <PointSizeSlider />
+      <PointAlphaSlider />
+      <PointSizeScaleSlider />
       <TimeFilterSlider />
       <ColorExpressionInput />
       <SearchBox />

@@ -563,6 +563,44 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     this.labelLayer.setHoveredLabel(null);
   }
 
+  // ============================================
+  // ポイント表示スタイルAPI
+  // ============================================
+
+  /**
+   * グローバル透明度を設定する
+   * @param alpha 透明度 (0.0-1.0)
+   */
+  setPointAlpha(alpha: number): void {
+    this.gpuLayer.setPointAlpha(alpha);
+    this.render();
+  }
+
+  /**
+   * 現在のグローバル透明度を取得する
+   * @returns 現在の透明度値 (0.0-1.0)
+   */
+  getPointAlpha(): number {
+    return this.gpuLayer.getPointAlpha();
+  }
+
+  /**
+   * グローバルサイズスケールを設定する
+   * @param scale サイズスケール (0.01以上)
+   */
+  setPointSizeScale(scale: number): void {
+    this.gpuLayer.setPointSizeScale(scale);
+    this.render();
+  }
+
+  /**
+   * 現在のグローバルサイズスケールを取得する
+   * @returns 現在のサイズスケール値
+   */
+  getPointSizeScale(): number {
+    return this.gpuLayer.getPointSizeScale();
+  }
+
   /**
    * リソースを破棄する
    */

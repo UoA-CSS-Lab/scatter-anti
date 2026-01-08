@@ -121,6 +121,10 @@ export interface DataOptions {
 export interface GpuOptions {
   /** 背景色（デフォルト: 透明な黒） */
   backgroundColor?: ColorRGBA;
+  /** グローバル透明度 (0.0-1.0, デフォルト: 1.0) */
+  pointAlpha?: number;
+  /** グローバルサイズスケール (デフォルト: 1.0) */
+  pointSizeScale?: number;
 }
 
 export interface LabelOptions {
