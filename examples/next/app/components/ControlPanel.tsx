@@ -7,6 +7,7 @@ import { LabelFilterInput } from './LabelFilterInput';
 import { PointLimitSlider } from './PointLimitSlider';
 import { StatsDisplay } from './StatsDisplay';
 import { HoverControlPanel } from './HoverControlPanel';
+import { TimeFilterSlider } from './TimeFilterSlider';
 
 export function ControlPanel() {
   return (
@@ -17,6 +18,7 @@ export function ControlPanel() {
       </div>
       <PointLimitSlider />
       <PointSizeSlider />
+      <TimeFilterSlider />
       <ColorExpressionInput />
       <SearchBox />
       <LabelFilterInput />

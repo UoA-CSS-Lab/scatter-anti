@@ -14,6 +14,8 @@ export interface DataLayerOptions {
   colorSql?: string;
   /** データフィルタリング用のWHERE条件 */
   whereConditions?: WhereCondition[];
+  /** GPUでフィルタリングするカラム名（最大4つ） */
+  gpuFilterColumns?: string[];
   /** ポイントを識別するためのカラム名 */
   idColumn: string;
   /** エラーをScatterPlotに通知するためのコールバック */
@@ -48,6 +50,8 @@ export class DataLayer {
   private colorSql: string = '0x4D4D4DCC';
   /** フィルタリング用のWHERE条件 */
   private whereConditions: WhereCondition[] = [];
+  /** GPUでフィルタリングするカラム名 */
+  private gpuFilterColumns: string[] = [];
   /** エラー通知用コールバック */
   private onError?: (error: ScatterPlotError) => void;
   /** データ変更通知用コールバック */
@@ -66,6 +70,7 @@ export class DataLayer {
     this.sizeSql = options.sizeSql ?? this.sizeSql;
     this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
+    this.gpuFilterColumns = options.gpuFilterColumns ?? [];
     this.idColumn = options.idColumn;
     this.onError = options.onError;
     this.onDataChanged = options.onDataChanged;
@@ -172,6 +177,71 @@ export class DataLayer {
   }
 
   /**
+   * GPUフィルターカラムデータを読み込む
+   * @returns フィルターカラムデータとカラム数、カラムが指定されていない場合はnull
+   */
+  async loadGpuFilterColumns(): Promise<{
+    data: Float32Array;
+    columnCount: number;
+    columnMapping: Map<string, number>;
+  } | null> {
+    if (this.gpuFilterColumns.length === 0 || !this.repository) {
+      return null;
+    }
+
+    // 有効なカラム数を制限（最大4）
+    const columns = this.gpuFilterColumns.slice(0, 4);
+
+    try {
+      // カラムデータを取得するSQLを構築
+      const columnSelects = columns
+        .map((col, i) => `CAST(${col} AS DOUBLE) AS __filter_col_${i}__`)
+        .join(', ');
+
+      const sql = `SELECT ${columnSelects} FROM parquet_data`;
+      const data = await this.repository.query({ toString: () => sql });
+
+      if (!data || data.rowCount === 0) {
+        return null;
+      }
+
+      // Float32Arrayに変換（各ポイントに4カラム分確保）
+      const filterData = new Float32Array(data.rowCount * 4);
+
+      for (let i = 0; i < data.rowCount; i++) {
+        const baseIndex = i * 4;
+        for (let j = 0; j < 4; j++) {
+          if (j < columns.length) {
+            const colData = data.columnData.get(`__filter_col_${j}__`);
+            filterData[baseIndex + j] = colData?.get(i) ?? 0;
+          } else {
+            filterData[baseIndex + j] = 0;
+          }
+        }
+      }
+
+      // カラム名→インデックスのマッピングを作成
+      const columnMapping = new Map<string, number>();
+      columns.forEach((col, i) => columnMapping.set(col, i));
+
+      return {
+        data: filterData,
+        columnCount: columns.length,
+        columnMapping,
+      };
+    } catch (e) {
+      if (this.onError) {
+        this.onError(
+          createError('QUERY_FAILED', 'Failed to load GPU filter columns', {
+            cause: e instanceof Error ? e : undefined,
+          })
+        );
+      }
+      return null;
+    }
+  }
+
+  /**
    * カスタムSQLクエリを実行する
    * @param query SQLクエリ
    * @returns クエリ結果のParquetData
@@ -246,8 +316,12 @@ export class DataLayer {
    * @param options 更新する設定オプション
    * @returns データ再読み込みが必要な場合はtrue
    */
-  updateOptions(options: Partial<DataLayerOptions>): boolean {
+  updateOptions(options: Partial<DataLayerOptions>): {
+    needsReload: boolean;
+    gpuFilterColumnsChanged: boolean;
+  } {
     let needsReload = false;
+    let gpuFilterColumnsChanged = false;
 
     if (options.sizeSql !== undefined && options.sizeSql !== this.sizeSql) {
       this.sizeSql = options.sizeSql;
@@ -261,6 +335,14 @@ export class DataLayer {
       this.whereConditions = options.whereConditions;
       needsReload = true;
     }
+    if (options.gpuFilterColumns !== undefined) {
+      const oldColumns = this.gpuFilterColumns.join(',');
+      const newColumns = options.gpuFilterColumns.join(',');
+      if (oldColumns !== newColumns) {
+        this.gpuFilterColumns = options.gpuFilterColumns;
+        gpuFilterColumnsChanged = true;
+      }
+    }
     if (options.idColumn !== undefined) {
       this.idColumn = options.idColumn;
     }
@@ -272,7 +354,7 @@ export class DataLayer {
       this.onDataChanged();
     }
 
-    return needsReload;
+    return { needsReload, gpuFilterColumnsChanged };
   }
 
   /**

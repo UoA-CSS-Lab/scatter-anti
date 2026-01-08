@@ -5,6 +5,7 @@ import type {
   ScatterPlotError,
   PointId,
   LabelIdentifier,
+  GpuWhereCondition,
 } from './types.js';
 import { DataLayer, type ParquetData } from './data/index.js';
 import { GpuLayer } from './renderer/index.js';
@@ -30,6 +31,9 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   private readonly dataUrl: string;
   private readonly labelUrl?: string;
 
+  /** GPUフィルターカラム名→インデックスのマッピング */
+  private gpuFilterColumnMapping: Map<string, number> = new Map();
+
   /**
    * ScatterPlotインスタンスを作成する
    * @param options 散布図の設定オプション
@@ -42,6 +46,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       sizeSql: options.data.sizeSql,
       colorSql: options.data.colorSql,
       whereConditions: options.data.whereConditions,
+      gpuFilterColumns: options.data.gpuFilterColumns,
       idColumn: options.data.idColumn,
       onError: (error) => this.emitError(error),
       onDataChanged: () => this.handleDataChanged(),
@@ -81,6 +86,13 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
       // GPUレイヤーを全データで初期化
       await this.gpuLayer.initialize(allPointsData);
+
+      // GPUフィルターカラムデータを読み込んでアップロード
+      const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
+      if (gpuFilterData) {
+        this.gpuLayer.uploadFilterColumns(gpuFilterData.data, gpuFilterData.columnCount);
+        this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
+      }
 
       // ラベルレイヤーを初期化（キャンバスオーバーレイを作成）
       this.labelLayer.initialize();
@@ -233,11 +245,29 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
     // データレイヤーの設定を更新（変更があればonDataChangedが呼ばれる）
     if (options.data !== undefined) {
-      this.dataLayer.updateOptions({
+      const result = this.dataLayer.updateOptions({
         sizeSql: options.data.sizeSql,
         colorSql: options.data.colorSql,
         whereConditions: options.data.whereConditions,
+        gpuFilterColumns: options.data.gpuFilterColumns,
       });
+
+      // GPUフィルターカラムが変更された場合は再読み込み
+      if (result.gpuFilterColumnsChanged) {
+        const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
+        if (gpuFilterData) {
+          this.gpuLayer.uploadFilterColumns(gpuFilterData.data, gpuFilterData.columnCount);
+          this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
+        } else {
+          this.gpuFilterColumnMapping.clear();
+        }
+      }
+
+      // GPUフィルター条件を更新
+      if (options.data.gpuWhereConditions !== undefined) {
+        const conditions = this.convertGpuWhereConditions(options.data.gpuWhereConditions);
+        this.gpuLayer.setGpuFilterConditions(conditions);
+      }
     }
 
     // GPUレイヤーの設定を更新
@@ -414,6 +444,23 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     if (userCallback) {
       userCallback(data);
     }
+  }
+
+  /**
+   * GpuWhereConditionをGpuLayer用の形式に変換する
+   * @param conditions ユーザー指定のGPUフィルター条件
+   * @returns GpuLayer用のフィルター条件配列
+   */
+  private convertGpuWhereConditions(
+    conditions: GpuWhereCondition[]
+  ): { columnIndex: number; min: number; max: number }[] {
+    return conditions
+      .filter((c) => this.gpuFilterColumnMapping.has(c.column))
+      .map((c) => ({
+        columnIndex: this.gpuFilterColumnMapping.get(c.column)!,
+        min: c.min ?? -Infinity,
+        max: c.max ?? Infinity,
+      }));
   }
 
   /**

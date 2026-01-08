@@ -66,6 +66,13 @@ export class GpuLayer {
   private renderUniformBuffer: GPUBuffer | null = null;
   /** コンピュート用ユニフォームバッファ */
   private computeUniformBuffer: GPUBuffer | null = null;
+  /** GPUフィルターカラムデータバッファ */
+  private filterColumnsBuffer: GPUBuffer | null = null;
+
+  /** GPUフィルター条件 */
+  private gpuFilterConditions: { columnIndex: number; min: number; max: number }[] = [];
+  /** GPUフィルターカラム数 */
+  private gpuFilterColumnCount: number = 0;
 
   // バインドグループ
   /** レンダリング用バインドグループ */
@@ -279,10 +286,19 @@ export class GpuLayer {
     });
 
     // コンピュート用ユニフォームバッファ
-    // worldBoundsMin (8) + worldBoundsMax (8) + lodThreshold (4) + totalPoints (4) + padding (8) = 32 bytes
+    // worldBoundsMin (8) + worldBoundsMax (8) + lodThreshold (4) + totalPoints (4) +
+    // activeFilterMask (4) + padding (4) + filterRangeMin (16) + filterRangeMax (16) = 64 bytes
     this.computeUniformBuffer = this.context.device.createBuffer({
-      size: 32,
+      size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // GPUフィルターカラムバッファ（初期状態ではダミーバッファを作成）
+    // 各ポイントにvec4<f32>（16 bytes）を格納
+    const filterColumnsBufferSize = Math.max(16, data.totalCount * 16);
+    this.filterColumnsBuffer = this.context.device.createBuffer({
+      size: filterColumnsBufferSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
     // 初期ユニフォームを更新
@@ -303,7 +319,8 @@ export class GpuLayer {
       !this.atomicCounterBuffer ||
       !this.indirectBuffer ||
       !this.computeUniformBuffer ||
-      !this.renderUniformBuffer
+      !this.renderUniformBuffer ||
+      !this.filterColumnsBuffer
     ) {
       return;
     }
@@ -316,6 +333,7 @@ export class GpuLayer {
         { binding: 1, resource: { buffer: this.visibleIndicesBuffer } },
         { binding: 2, resource: { buffer: this.atomicCounterBuffer } },
         { binding: 3, resource: { buffer: this.computeUniformBuffer } },
+        { binding: 4, resource: { buffer: this.filterColumnsBuffer } },
       ],
     });
 
@@ -499,7 +517,7 @@ export class GpuLayer {
     const worldMinY = (clipMinY - this.panY) / scaleY;
     const worldMaxY = (clipMaxY - this.panY) / scaleY;
 
-    const computeUniformData = new ArrayBuffer(32);
+    const computeUniformData = new ArrayBuffer(64);
     const computeFloatView = new Float32Array(computeUniformData);
     const computeUint32View = new Uint32Array(computeUniformData);
 
@@ -509,7 +527,34 @@ export class GpuLayer {
     computeFloatView[3] = worldMaxY;
     computeUint32View[4] = this.calculateLodThreshold(); // lodThreshold
     computeUint32View[5] = this.totalPointCount; // totalPoints
-    // padding: [6], [7]
+
+    // GPUフィルター条件を設定
+    let activeFilterMask = 0;
+    const filterRangeMin = [-Infinity, -Infinity, -Infinity, -Infinity];
+    const filterRangeMax = [Infinity, Infinity, Infinity, Infinity];
+
+    for (const condition of this.gpuFilterConditions) {
+      if (condition.columnIndex >= 0 && condition.columnIndex < 4) {
+        activeFilterMask |= 1 << condition.columnIndex;
+        filterRangeMin[condition.columnIndex] = condition.min;
+        filterRangeMax[condition.columnIndex] = condition.max;
+      }
+    }
+
+    computeUint32View[6] = activeFilterMask; // activeFilterMask
+    // padding: [7]
+
+    // filterRangeMin (offset 32, index 8-11)
+    computeFloatView[8] = filterRangeMin[0];
+    computeFloatView[9] = filterRangeMin[1];
+    computeFloatView[10] = filterRangeMin[2];
+    computeFloatView[11] = filterRangeMin[3];
+
+    // filterRangeMax (offset 48, index 12-15)
+    computeFloatView[12] = filterRangeMax[0];
+    computeFloatView[13] = filterRangeMax[1];
+    computeFloatView[14] = filterRangeMax[2];
+    computeFloatView[15] = filterRangeMax[3];
 
     this.context.device.queue.writeBuffer(this.computeUniformBuffer, 0, computeUniformData);
   }
@@ -676,6 +721,60 @@ export class GpuLayer {
   }
 
   /**
+   * GPUフィルターカラムデータをアップロードする
+   * @param data フィルターカラムデータ（各ポイントに4カラム分のf32、totalPoints * 4 floats）
+   * @param columnCount 有効なカラム数（0-4）
+   */
+  uploadFilterColumns(data: Float32Array, columnCount: number): void {
+    if (!this.context.device) return;
+
+    this.gpuFilterColumnCount = Math.min(4, columnCount);
+    const requiredSize = this.totalPointCount * 16; // vec4<f32> per point
+
+    // バッファサイズが足りない場合は再作成
+    if (!this.filterColumnsBuffer || data.byteLength > requiredSize) {
+      this.filterColumnsBuffer?.destroy();
+      this.filterColumnsBuffer = this.context.device.createBuffer({
+        size: Math.max(16, data.byteLength),
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      // バインドグループを再作成
+      this.createBindGroups();
+    }
+
+    // データをアップロード
+    this.context.device.queue.writeBuffer(
+      this.filterColumnsBuffer,
+      0,
+      data.buffer,
+      data.byteOffset,
+      data.byteLength
+    );
+    this.filterResultValid = false;
+  }
+
+  /**
+   * GPUフィルター条件を設定する
+   * @param conditions フィルター条件の配列
+   */
+  setGpuFilterConditions(
+    conditions: { columnIndex: number; min: number; max: number }[]
+  ): void {
+    this.gpuFilterConditions = conditions;
+    this.filterResultValid = false;
+    this.updateUniforms();
+  }
+
+  /**
+   * GPUフィルター条件をクリアする
+   */
+  clearGpuFilterConditions(): void {
+    this.gpuFilterConditions = [];
+    this.filterResultValid = false;
+    this.updateUniforms();
+  }
+
+  /**
    * リソースを破棄する
    */
   destroy(): void {
@@ -687,6 +786,7 @@ export class GpuLayer {
     this.indexBuffer?.destroy();
     this.renderUniformBuffer?.destroy();
     this.computeUniformBuffer?.destroy();
+    this.filterColumnsBuffer?.destroy();
     this.context.destroy();
   }
 }

@@ -19,13 +19,17 @@ struct FilterUniforms {
   worldBoundsMax: vec2<f32>,
   lodThreshold: u32,
   totalPoints: u32,
-  _padding: vec2<u32>,
+  activeFilterMask: u32,
+  _padding: u32,
+  filterRangeMin: vec4<f32>,
+  filterRangeMax: vec4<f32>,
 }
 
 @group(0) @binding(0) var<storage, read> allPoints: array<Point>;
 @group(0) @binding(1) var<storage, read_write> visibleIndices: array<u32>;
 @group(0) @binding(2) var<storage, read_write> counter: atomic<u32>;
 @group(0) @binding(3) var<uniform> uniforms: FilterUniforms;
+@group(0) @binding(4) var<storage, read> filterColumns: array<vec4<f32>>;
 
 // ワークグループローカルストレージ（グローバルアトミックの競合を軽減）
 var<workgroup> localCount: atomic<u32>;
@@ -67,11 +71,41 @@ fn main(
     if (isVisible) {
       // 必要な場合のみポイントデータをロード（帯域幅の最適化）
       let point = allPoints[idx];
-      
+
       // ワールド空間で直接境界をチェック
       // すべてのポイントに対して行列乗算を行うことを回避
       isVisible = point.x >= uniforms.worldBoundsMin.x && point.x <= uniforms.worldBoundsMax.x &&
                   point.y >= uniforms.worldBoundsMin.y && point.y <= uniforms.worldBoundsMax.y;
+    }
+
+    // 3. GPUフィルター条件チェック（境界チェックを通過した場合のみ）
+    if (isVisible && uniforms.activeFilterMask != 0u) {
+      let filterData = filterColumns[idx];
+
+      // カラム0
+      if ((uniforms.activeFilterMask & 1u) != 0u) {
+        isVisible = isVisible &&
+                    filterData.x >= uniforms.filterRangeMin.x &&
+                    filterData.x <= uniforms.filterRangeMax.x;
+      }
+      // カラム1
+      if ((uniforms.activeFilterMask & 2u) != 0u) {
+        isVisible = isVisible &&
+                    filterData.y >= uniforms.filterRangeMin.y &&
+                    filterData.y <= uniforms.filterRangeMax.y;
+      }
+      // カラム2
+      if ((uniforms.activeFilterMask & 4u) != 0u) {
+        isVisible = isVisible &&
+                    filterData.z >= uniforms.filterRangeMin.z &&
+                    filterData.z <= uniforms.filterRangeMax.z;
+      }
+      // カラム3
+      if ((uniforms.activeFilterMask & 8u) != 0u) {
+        isVisible = isVisible &&
+                    filterData.w >= uniforms.filterRangeMin.w &&
+                    filterData.w <= uniforms.filterRangeMax.w;
+      }
     }
 
     if (isVisible) {

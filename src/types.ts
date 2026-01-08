@@ -85,6 +85,16 @@ export interface RawSqlFilter {
 /** すべてのWHERE条件の共用体型 */
 export type WhereCondition = NumericFilter | StringFilter | RawSqlFilter;
 
+/** GPUフィルター条件 (range only) */
+export interface GpuWhereCondition {
+  /** フィルター対象のカラム名 (gpuFilterColumnsで指定した名前) */
+  column: string;
+  /** 最小値 (指定しない場合は -Infinity) */
+  min?: number;
+  /** 最大値 (指定しない場合は +Infinity) */
+  max?: number;
+}
+
 export interface DataOptions {
   /** レンダリングする表示ポイントの最大数 */
   visiblePointLimit?: number;
@@ -97,6 +107,12 @@ export interface DataOptions {
 
   /** データをフィルタリングするWHERE条件（ANDのみ） */
   whereConditions?: WhereCondition[];
+
+  /** GPUでフィルタリングするカラム名 (最大4つ) */
+  gpuFilterColumns?: string[];
+
+  /** GPU側で実行するフィルター条件 */
+  gpuWhereConditions?: GpuWhereCondition[];
 
   /** ポイントを識別するカラム名 */
   idColumn: string;
