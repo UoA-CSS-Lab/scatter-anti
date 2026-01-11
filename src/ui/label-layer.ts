@@ -282,54 +282,52 @@ export class LabelLayer {
           const textWidth = textMetrics.width;
           const textHeight = scaledFontSize;
 
-          // 背景ボックスのサイズを計算
-          const padding = 4;
-          const boxX = screenX - textWidth / 2 - padding;
-          const boxY = screenY - textHeight / 2 - padding;
-          const boxWidth = textWidth + padding * 2;
-          const boxHeight = textHeight + padding * 2;
-          const borderRadius = 4;
-
           // フィルタ結果に応じてスタイルを設定
           if (passedFilter) {
-            // アクティブラベル用の背景を描画
-            this.labelContext.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            this.labelContext.beginPath();
-            this.labelContext.roundRect(boxX, boxY, boxWidth, boxHeight, borderRadius);
-            this.labelContext.fill();
+            // 影の設定（ソフト）
+            this.labelContext.shadowColor = 'rgba(0, 0, 0, 0.4)';
+            this.labelContext.shadowBlur = 6;
+            this.labelContext.shadowOffsetX = 2;
+            this.labelContext.shadowOffsetY = 2;
 
-            // カスタムカラーがあれば使用
+            // テキスト色: 白
+            this.labelContext.fillStyle = 'white';
+
+            // アウトライン色: ラベルのカスタムカラー（なければ白）
             if (
               label.properties?.color &&
               Array.isArray(label.properties.color) &&
               label.properties.color.length === 3
             ) {
               const [r, g, b] = label.properties.color;
-              this.labelContext.fillStyle = `rgb(${r}, ${g}, ${b})`;
-              this.labelContext.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+              this.labelContext.strokeStyle = `rgb(${r}, ${g}, ${b})`;
             } else {
-              // デフォルトは白色テキスト
-              this.labelContext.fillStyle = 'white';
-              this.labelContext.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+              this.labelContext.strokeStyle = 'white';
             }
-            this.labelContext.lineWidth = 3;
+            this.labelContext.lineWidth = 2;
           } else {
-            // フィルタ対象外ラベル用の薄い背景を描画
-            this.labelContext.fillStyle = 'rgba(0, 0, 0, 0.4)';
-            this.labelContext.beginPath();
-            this.labelContext.roundRect(boxX, boxY, boxWidth, boxHeight, borderRadius);
-            this.labelContext.fill();
+            // 影の設定（より薄く）
+            this.labelContext.shadowColor = 'rgba(0, 0, 0, 0.3)';
+            this.labelContext.shadowBlur = 4;
+            this.labelContext.shadowOffsetX = 2;
+            this.labelContext.shadowOffsetY = 2;
 
             // フィルタ対象外は薄いグレーで表示
             this.labelContext.fillStyle = 'rgba(180, 180, 180, 0.6)';
-            this.labelContext.strokeStyle = 'rgba(40, 40, 40, 0.8)';
-            this.labelContext.lineWidth = 2;
+            this.labelContext.strokeStyle = 'rgba(100, 100, 100, 0.6)';
+            this.labelContext.lineWidth = 1.5;
           }
 
           // テキストのアウトラインを描画
           this.labelContext.strokeText(label.text, screenX, screenY);
           // テキスト本体を描画
           this.labelContext.fillText(label.text, screenX, screenY);
+
+          // 影をリセット
+          this.labelContext.shadowColor = 'transparent';
+          this.labelContext.shadowBlur = 0;
+          this.labelContext.shadowOffsetX = 0;
+          this.labelContext.shadowOffsetY = 0;
 
           // ヒット検出用にバウンディングボックスを保存
           this.renderedLabelBounds.push({
