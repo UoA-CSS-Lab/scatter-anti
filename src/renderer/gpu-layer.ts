@@ -109,11 +109,8 @@ export class GpuLayer {
    */
   constructor(options: GpuLayerOptions) {
     this.canvas = options.canvas;
-    // WebGPUコンテキストを作成
     this.context = new WebGPUContext();
-    // 背景色を設定（デフォルト: 透明な黒）
     this.backgroundColor = options.backgroundColor ?? { r: 0, g: 0, b: 0, a: 0 };
-    // 表示可能なポイントの最大数を設定（デフォルト: 500万）
     this.visiblePointLimit = options.visiblePointLimit ?? 5000000;
   }
 
@@ -122,13 +119,9 @@ export class GpuLayer {
    * @param initialData 初期データ
    */
   async initialize(initialData: AllPointsData): Promise<void> {
-    // WebGPUコンテキストを初期化
     await this.context.initialize(this.canvas);
-    // パイプラインを作成
     this.createPipelines();
-    // バッファを作成
     await this.createBuffers(initialData);
-    // バインドグループを作成
     this.createBindGroups();
   }
 
@@ -140,7 +133,6 @@ export class GpuLayer {
       throw new Error('WebGPU device not initialized');
     }
 
-    // フィルタリング用コンピュートパイプライン
     const filterShaderModule = this.context.device.createShaderModule({
       code: filterComputeShader,
     });
@@ -152,7 +144,6 @@ export class GpuLayer {
       },
     });
 
-    // Indirect Buffer更新用コンピュートパイプライン
     const updateIndirectShaderModule = this.context.device.createShaderModule({
       code: updateIndirectShader,
     });
@@ -164,14 +155,12 @@ export class GpuLayer {
       },
     });
 
-    // レンダーパイプライン
     const renderShaderModule = this.context.device.createShaderModule({
       code: scatterVertexShader,
     });
 
-    // クワッド頂点バッファレイアウト（stepMode: 'vertex'）
     const quadVertexBufferLayout: GPUVertexBufferLayout = {
-      arrayStride: 8, // 2 floats * 4 bytes
+      arrayStride: 8,
       stepMode: 'vertex',
       attributes: [
         {
@@ -225,25 +214,14 @@ export class GpuLayer {
 
     this.totalPointCount = data.totalCount;
 
-    // クワッド頂点バッファ
-    const quadVertices = new Float32Array([
-      -1.0,
-      -1.0, // 左下
-      1.0,
-      -1.0, // 右下
-      -1.0,
-      1.0, // 左上
-      1.0,
-      1.0, // 右上
-    ]);
+    const quadVertices = new Float32Array([-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0]);
     this.quadVertexBuffer = this.context.device.createBuffer({
       size: quadVertices.byteLength,
       usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
     this.context.device.queue.writeBuffer(this.quadVertexBuffer, 0, quadVertices);
 
-    // 全ポイントデータバッファ (Storage)
-    const pointsBufferSize = data.totalCount * 16; // 16 bytes per point
+    const pointsBufferSize = data.totalCount * 16;
     this.allPointsBuffer = this.context.device.createBuffer({
       size: pointsBufferSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -256,26 +234,22 @@ export class GpuLayer {
       data.instanceData.byteLength
     );
 
-    // 可視インデックスバッファ (Storage)
-    const indicesBufferSize = data.totalCount * 4; // 4 bytes per index
+    const indicesBufferSize = data.totalCount * 4;
     this.visibleIndicesBuffer = this.context.device.createBuffer({
       size: indicesBufferSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
     });
 
-    // アトミックカウンターバッファ
     this.atomicCounterBuffer = this.context.device.createBuffer({
       size: 4,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    // Indirect Drawingパラメータバッファ (20 bytes for DrawIndexedIndirect)
     this.indirectBuffer = this.context.device.createBuffer({
       size: 20,
       usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    // インデックスバッファ
     const indices = new Uint16Array([0, 1, 2, 2, 1, 3]);
     this.indexBuffer = this.context.device.createBuffer({
       size: indices.byteLength,
@@ -283,29 +257,22 @@ export class GpuLayer {
     });
     this.context.device.queue.writeBuffer(this.indexBuffer, 0, indices);
 
-    // レンダリング用ユニフォームバッファ (96 bytes)
     this.renderUniformBuffer = this.context.device.createBuffer({
       size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // コンピュート用ユニフォームバッファ
-    // worldBoundsMin (8) + worldBoundsMax (8) + lodThreshold (4) + totalPoints (4) +
-    // activeFilterMask (4) + padding (4) + filterRangeMin (16) + filterRangeMax (16) = 64 bytes
     this.computeUniformBuffer = this.context.device.createBuffer({
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // GPUフィルターカラムバッファ（初期状態ではダミーバッファを作成）
-    // 各ポイントにvec4<f32>（16 bytes）を格納
     const filterColumnsBufferSize = Math.max(16, data.totalCount * 16);
     this.filterColumnsBuffer = this.context.device.createBuffer({
       size: filterColumnsBufferSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
-    // 初期ユニフォームを更新
     this.updateUniforms();
   }
 
@@ -329,7 +296,6 @@ export class GpuLayer {
       return;
     }
 
-    // フィルタリング用バインドグループ
     this.filterBindGroup = this.context.device.createBindGroup({
       layout: this.filterPipeline.getBindGroupLayout(0),
       entries: [
@@ -341,7 +307,6 @@ export class GpuLayer {
       ],
     });
 
-    // Indirect更新用バインドグループ
     this.updateIndirectBindGroup = this.context.device.createBindGroup({
       layout: this.updateIndirectPipeline.getBindGroupLayout(0),
       entries: [
@@ -350,7 +315,6 @@ export class GpuLayer {
       ],
     });
 
-    // レンダリング用バインドグループ
     this.renderBindGroup = this.context.device.createBindGroup({
       layout: this.renderPipeline.getBindGroupLayout(0),
       entries: [
@@ -370,13 +334,10 @@ export class GpuLayer {
 
     const newTotalCount = data.totalCount;
 
-    // バッファサイズが足りない場合は再作成
     if (newTotalCount > this.totalPointCount) {
-      // 古いバッファを破棄
       this.allPointsBuffer?.destroy();
       this.visibleIndicesBuffer?.destroy();
 
-      // 新しいバッファを作成
       const pointsBufferSize = newTotalCount * 16;
       this.allPointsBuffer = this.context.device.createBuffer({
         size: pointsBufferSize,
@@ -389,15 +350,12 @@ export class GpuLayer {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
       });
 
-      // バインドグループを再作成
       this.createBindGroups();
     }
 
     this.totalPointCount = newTotalCount;
-    // データが変わったのでフィルタ結果を無効化
     this.filterResultValid = false;
 
-    // データをアップロード
     if (this.allPointsBuffer) {
       this.context.device.queue.writeBuffer(
         this.allPointsBuffer,
@@ -488,16 +446,13 @@ export class GpuLayer {
       return;
     }
 
-    // ビューが変わったのでフィルタ結果を無効化
     this.filterResultValid = false;
 
     const viewMatrix = this.createViewMatrix();
 
-    // レンダリング用ユニフォーム
     const renderUniformData = new Float32Array(24);
     renderUniformData.set(viewMatrix, 0);
     // Vertex Shaderで pow(zoom, 0.3) を計算するコストを避けるため、CPUで事前に計算して渡す
-    // シェーダー側では zoomScale として受け取る
     renderUniformData[16] = Math.pow(this.zoom, 0.3);
     renderUniformData[17] = this.canvas.width;
     renderUniformData[18] = this.canvas.height;
@@ -505,7 +460,6 @@ export class GpuLayer {
     renderUniformData[20] = this.pointSizeScale;
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
-    // コンピュート用ユニフォーム
     // 逆変換を行ってワールド空間での境界を計算し、シェーダー内での行列演算を削除する
     const aspectRatio = this.canvas.width / this.canvas.height;
     const clipMinX = -1 - VIEWPORT_MARGIN;
@@ -513,8 +467,6 @@ export class GpuLayer {
     const clipMaxX = 1 + VIEWPORT_MARGIN;
     const clipMaxY = 1 + VIEWPORT_MARGIN;
 
-    // clip = world * scale + pan
-    // world = (clip - pan) / scale
     const scaleX = this.zoom / aspectRatio;
     const scaleY = this.zoom;
 
@@ -531,10 +483,9 @@ export class GpuLayer {
     computeFloatView[1] = worldMinY;
     computeFloatView[2] = worldMaxX;
     computeFloatView[3] = worldMaxY;
-    computeUint32View[4] = this.calculateLodThreshold(); // lodThreshold
-    computeUint32View[5] = this.totalPointCount; // totalPoints
+    computeUint32View[4] = this.calculateLodThreshold();
+    computeUint32View[5] = this.totalPointCount;
 
-    // GPUフィルター条件を設定
     let activeFilterMask = 0;
     const filterRangeMin = [-Infinity, -Infinity, -Infinity, -Infinity];
     const filterRangeMax = [Infinity, Infinity, Infinity, Infinity];
@@ -547,16 +498,13 @@ export class GpuLayer {
       }
     }
 
-    computeUint32View[6] = activeFilterMask; // activeFilterMask
-    // padding: [7]
+    computeUint32View[6] = activeFilterMask;
 
-    // filterRangeMin (offset 32, index 8-11)
     computeFloatView[8] = filterRangeMin[0];
     computeFloatView[9] = filterRangeMin[1];
     computeFloatView[10] = filterRangeMin[2];
     computeFloatView[11] = filterRangeMin[3];
 
-    // filterRangeMax (offset 48, index 12-15)
     computeFloatView[12] = filterRangeMax[0];
     computeFloatView[13] = filterRangeMax[1];
     computeFloatView[14] = filterRangeMax[2];
@@ -587,12 +535,9 @@ export class GpuLayer {
 
     const commandEncoder = this.context.device.createCommandEncoder();
 
-    // ビューが変わった時だけフィルタリングを再計算
     if (!this.filterResultValid) {
-      // カウンターをリセット
       this.context.device.queue.writeBuffer(this.atomicCounterBuffer, 0, new Uint32Array([0]));
 
-      // コンピュートパス: フィルタリング
       {
         const computePass = commandEncoder.beginComputePass();
         computePass.setPipeline(this.filterPipeline);
@@ -602,7 +547,6 @@ export class GpuLayer {
         computePass.end();
       }
 
-      // コンピュートパス: Indirect Buffer更新
       {
         const computePass = commandEncoder.beginComputePass();
         computePass.setPipeline(this.updateIndirectPipeline);
@@ -614,7 +558,6 @@ export class GpuLayer {
       this.filterResultValid = true;
     }
 
-    // レンダーパス
     {
       const textureView = this.context.context.getCurrentTexture().createView();
       const renderPass = commandEncoder.beginRenderPass({
@@ -728,20 +671,17 @@ export class GpuLayer {
     if (!this.context.device) return;
 
     this.gpuFilterColumnCount = Math.min(4, columnCount);
-    const requiredSize = this.totalPointCount * 16; // vec4<f32> per point
+    const requiredSize = this.totalPointCount * 16;
 
-    // バッファサイズが足りない場合は再作成
     if (!this.filterColumnsBuffer || data.byteLength > requiredSize) {
       this.filterColumnsBuffer?.destroy();
       this.filterColumnsBuffer = this.context.device.createBuffer({
         size: Math.max(16, data.byteLength),
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
       });
-      // バインドグループを再作成
       this.createBindGroups();
     }
 
-    // データをアップロード
     this.context.device.queue.writeBuffer(
       this.filterColumnsBuffer,
       0,
@@ -756,9 +696,7 @@ export class GpuLayer {
    * GPUフィルター条件を設定する
    * @param conditions フィルター条件の配列
    */
-  setGpuFilterConditions(
-    conditions: { columnIndex: number; min: number; max: number }[]
-  ): void {
+  setGpuFilterConditions(conditions: { columnIndex: number; min: number; max: number }[]): void {
     this.gpuFilterConditions = conditions;
     this.filterResultValid = false;
     this.updateUniforms();

@@ -52,13 +52,11 @@ fn main(
   let idx = globalId.x;
   let lid = localId.x;
 
-  // ワークグループローカルカウンターを初期化
   if (lid == 0u) {
     atomicStore(&localCount, 0u);
   }
   workgroupBarrier();
 
-  // 可視性をチェックしてローカルバッファに追加
   var myLocalSlot: u32 = 0xFFFFFFFFu;
   if (idx < uniforms.totalPoints) {
     // 1. LODフィルター（早期終了）
@@ -115,14 +113,12 @@ fn main(
   }
   workgroupBarrier();
 
-  // グローバルオフセットを取得（ワークグループごとに1回のみ）
   let count = atomicLoad(&localCount);
   if (lid == 0u && count > 0u) {
     globalOffset = atomicAdd(&counter, count);
   }
   workgroupBarrier();
 
-  // グローバルバッファに書き込み
   if (lid < count) {
     visibleIndices[globalOffset + lid] = localIndices[lid];
   }
@@ -200,11 +196,9 @@ fn vertexMain(
 ) -> VertexOutput {
   var output: VertexOutput;
 
-  // 可視インデックス経由でポイントデータを取得
   let pointIdx = visibleIndices[instanceIdx];
   let point = allPoints[pointIdx];
 
-  // ポイント位置をクリップ空間に変換
   let clipPos = uniforms.viewMatrix * vec4<f32>(point.x, point.y, 0.0, 1.0);
 
   // ポイントサイズをピクセルからクリップ空間に変換
@@ -222,7 +216,6 @@ fn vertexMain(
   output.position = clipPos + vec4<f32>(offsetClip, 0.0, 0.0);
   output.color = unpackColor(point.color);
 
-  // クワッド位置(-1〜1)をテクスチャ座標(0〜1)にマッピング
   output.pointCoord = (quadPosition + 1.0) * 0.5;
 
   return output;
@@ -231,11 +224,9 @@ fn vertexMain(
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   // 最適化: 高コストなsqrt()命令を避けるため距離の二乗を使用
-  // 中心は(0.5, 0.5)
   let d = input.pointCoord - vec2<f32>(0.5);
   let distSq = dot(d, d);
-  
-  // 半径は0.5なので、半径の二乗は0.25
+
   if (distSq > 0.25) {
     discard;
   }

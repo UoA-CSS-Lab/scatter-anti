@@ -85,12 +85,8 @@ export class DataLayer {
    * @returns 処理済みの全データ
    */
   async initialize(dataUrl: string): Promise<AllPointsData> {
-    // ParquetReaderを作成して初期化
     this.repository = await createParquetReader();
-    // URLからParquetファイルを読み込み
     await this.repository.loadParquetFromUrl(dataUrl, this.idColumn);
-
-    // 全データを読み込んで返す
     return await this.loadAllPoints();
   }
 
@@ -143,7 +139,6 @@ export class DataLayer {
     }
 
     try {
-      // WHERE条件を構築
       const whereConditions: string[] = [];
       for (const condition of this.whereConditions) {
         whereConditions.push(this.buildWhereClauseString(condition));
@@ -151,7 +146,6 @@ export class DataLayer {
       const whereClause =
         whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-      // LIMITなしで全データを取得
       const sql = `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data ${whereClause}`;
 
       const data = await this.repository.query({ toString: () => sql });
@@ -192,11 +186,9 @@ export class DataLayer {
       return null;
     }
 
-    // 有効なカラム数を制限（最大4）
     const columns = this.gpuFilterColumns.slice(0, 4);
 
     try {
-      // カラムデータを取得するSQLを構築
       const columnSelects = columns
         .map((col, i) => `CAST(${col} AS DOUBLE) AS __filter_col_${i}__`)
         .join(', ');
@@ -208,7 +200,6 @@ export class DataLayer {
         return null;
       }
 
-      // Float32Arrayに変換（各ポイントに4カラム分確保）
       const filterData = new Float32Array(data.rowCount * 4);
 
       for (let i = 0; i < data.rowCount; i++) {
@@ -223,7 +214,6 @@ export class DataLayer {
         }
       }
 
-      // カラム名→インデックスのマッピングを作成
       const columnMapping = new Map<string, number>();
       columns.forEach((col, i) => columnMapping.set(col, i));
 
@@ -277,10 +267,8 @@ export class DataLayer {
       };
     }
 
-    // キャッシュ用配列を初期化
     const cachedData = new Array<PointData>(data.rowCount);
 
-    // ArrayBufferを作成し、Float32ArrayとUint32Arrayの両方のビューを取得
     const buffer = new ArrayBuffer(data.rowCount * 16);
     const floatView = new Float32Array(buffer);
     const uint32View = new Uint32Array(buffer);
@@ -426,22 +414,18 @@ export class DataLayer {
       return null;
     }
 
-    // スクリーン座標をクリップ空間（-1から1）に変換
     const clipX = (screenX / canvasWidth) * 2 - 1;
     const clipY = -((screenY / canvasHeight) * 2 - 1);
 
-    // クリップ空間をワールド座標に変換
     const worldX = ((clipX - panX) * aspectRatio) / zoom;
     const worldY = (clipY - panY) / zoom;
 
-    // ワールド空間での閾値を計算
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
 
     let nearestId: string | null = null;
     let nearestDistance = Infinity;
 
-    // 全ポイントを検索
     for (let i = 0; i < this.allPointsCache.length; i++) {
       const pointX = this.allPointsCache[i].x;
       const pointY = this.allPointsCache[i].y;
@@ -460,7 +444,6 @@ export class DataLayer {
       return null;
     }
 
-    // 見つかったIDでポイントの完全なデータをクエリ
     const data = await this.repository.query({
       toString: () =>
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,

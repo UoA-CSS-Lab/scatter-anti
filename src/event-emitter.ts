@@ -36,11 +36,9 @@ export class EventEmitter<T extends { [K in keyof T]: unknown }> {
    * @returns メソッドチェーン用のthisインスタンス
    */
   on<K extends keyof T>(event: K, handler: EventHandler<T[K]>): this {
-    // イベント名に対応するセットがなければ新規作成
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
-    // ハンドラーをセットに追加
     this.listeners.get(event)!.add(handler);
     return this;
   }
@@ -53,7 +51,6 @@ export class EventEmitter<T extends { [K in keyof T]: unknown }> {
    * @returns メソッドチェーン用のthisインスタンス
    */
   off<K extends keyof T>(event: K, handler: EventHandler<T[K]>): this {
-    // セットからハンドラーを削除
     this.listeners.get(event)?.delete(handler);
     return this;
   }
@@ -66,13 +63,10 @@ export class EventEmitter<T extends { [K in keyof T]: unknown }> {
    * @returns リスナーがあればtrue、なければfalse
    */
   protected emit<K extends keyof T>(event: K, data: T[K]): boolean {
-    // イベントに対応するハンドラーを取得
     const handlers = this.listeners.get(event);
-    // ハンドラーがない場合はfalseを返す
     if (!handlers || handlers.size === 0) {
       return false;
     }
-    // 各ハンドラーを呼び出す
     handlers.forEach((handler) => handler(data));
     return true;
   }
@@ -85,10 +79,8 @@ export class EventEmitter<T extends { [K in keyof T]: unknown }> {
    */
   removeAllListeners(event?: keyof T): this {
     if (event) {
-      // 特定のイベントのリスナーを削除
       this.listeners.delete(event);
     } else {
-      // すべてのリスナーをクリア
       this.listeners.clear();
     }
     return this;

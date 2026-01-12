@@ -22,12 +22,10 @@ import { createError } from './errors.js';
  * - LabelLayer: ラベル用の2Dキャンバスオーバーレイを担当
  */
 export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
-  // 3つの異なるレイヤー
   private readonly dataLayer: DataLayer;
   private gpuLayer: GpuLayer;
   private labelLayer: LabelLayer;
 
-  // 設定
   private readonly dataUrl: string;
   private readonly labelUrl?: string;
 
@@ -41,7 +39,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   constructor(options: ScatterPlotOptions) {
     super();
 
-    // データレイヤーを初期化（Parquetデータの読み込みとクエリを担当）
     this.dataLayer = new DataLayer({
       sizeSql: options.data.sizeSql,
       colorSql: options.data.colorSql,
@@ -52,14 +49,12 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       onDataChanged: () => this.handleDataChanged(),
     });
 
-    // GPUレイヤーを初期化（WebGPUレンダリングを担当）
     this.gpuLayer = new GpuLayer({
       canvas: options.canvas,
       backgroundColor: options.gpu?.backgroundColor,
       visiblePointLimit: options.data.visiblePointLimit,
     });
 
-    // ラベルレイヤーを初期化（2Dキャンバスでのラベル描画を担当）
     this.labelLayer = new LabelLayer({
       canvas: options.canvas,
       labelFontSize: options.labels?.fontSize,
@@ -71,7 +66,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       dataLayer: this.dataLayer,
     });
 
-    // 初期化時の自動フェッチ用にURLを保存
     this.dataUrl = options.dataUrl;
     this.labelUrl = options.labels?.url;
   }
@@ -81,29 +75,22 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async initialize(): Promise<void> {
     try {
-      // データレイヤーを初期化し、全データをParquetファイルから読み込む
       const allPointsData = await this.dataLayer.initialize(this.dataUrl);
-
-      // GPUレイヤーを全データで初期化
       await this.gpuLayer.initialize(allPointsData);
 
-      // GPUフィルターカラムデータを読み込んでアップロード
       const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
       if (gpuFilterData) {
         this.gpuLayer.uploadFilterColumns(gpuFilterData.data, gpuFilterData.columnCount);
         this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
       }
 
-      // ラベルレイヤーを初期化（キャンバスオーバーレイを作成）
       this.labelLayer.initialize();
     } catch (e) {
-      // 例外をスローせず、エラーイベントを発行する
       const error = this.categorizeInitError(e);
       this.emitError(error);
       return;
     }
 
-    // labelUrlが指定されている場合、ラベルを自動フェッチ
     if (this.labelUrl) {
       await this.loadLabelsFromUrl(this.labelUrl);
     }
@@ -114,11 +101,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   private async handleDataChanged(): Promise<void> {
     try {
-      // 全データを再読み込み
       const allPointsData = await this.dataLayer.loadAllPoints();
-      // GPUにアップロード
       this.gpuLayer.uploadAllPoints(allPointsData);
-      // 再レンダリング
       this.render();
     } catch (e) {
       this.emitError(
@@ -135,9 +119,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   private async loadLabelsFromUrl(url: string): Promise<void> {
     try {
-      // 指定されたURLからラベルデータをフェッチ
       const response = await fetch(url);
-      // HTTPステータスコードが成功でない場合はエラーを発行
       if (!response.ok) {
         this.emitError(
           createError(
@@ -150,14 +132,10 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         );
         return;
       }
-      // レスポンスをJSONとしてパース
       const labelData = await response.json();
-      // ラベルをラベルレイヤーに読み込む
       this.loadLabels(labelData);
-      // ラベルデータをデータレイヤーにも読み込む（クエリ用）
       await this.dataLayer.loadLabelData(labelData);
     } catch (e) {
-      // ネットワークエラーの場合はエラーイベントを発行
       this.emitError(
         createError('LABEL_FETCH_FAILED', 'Network error while fetching labels', {
           cause: e instanceof Error ? e : undefined,
@@ -173,11 +151,9 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @returns 分類されたScatterPlotErrorオブジェクト
    */
   private categorizeInitError(e: unknown): ScatterPlotError {
-    // エラーメッセージと原因を抽出
     const message = e instanceof Error ? e.message : String(e);
     const cause = e instanceof Error ? e : undefined;
 
-    // エラーメッセージの内容に基づいてエラーコードを決定
     if (message.includes('WebGPU is not supported')) {
       return createError('WEBGPU_NOT_SUPPORTED', message, { cause });
     }
@@ -197,7 +173,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       return createError('PARQUET_LOAD_FAILED', message, { cause });
     }
 
-    // 不明な初期化エラーの場合はWebGPU未サポートとして扱う
     return createError('WEBGPU_NOT_SUPPORTED', message, { cause });
   }
 
@@ -206,9 +181,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param error 発行するエラーオブジェクト
    */
   private emitError(error: ScatterPlotError): void {
-    // errorイベントを発行し、リスナーの有無を確認
     const hasListeners = this.emit('error', error);
-    // リスナーがいない場合はコンソールに警告を出力
     if (!hasListeners) {
       // eslint-disable-next-line no-console
       console.warn('[scatter-anti]', `${error.code}: ${error.message}`);
@@ -219,10 +192,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * 散布図をレンダリングする（GPUレイヤーとラベルの両方）
    */
   render(): void {
-    // まずGPUレイヤーをレンダリング（WebGPUで点を描画）
     this.gpuLayer.render();
-
-    // その上にラベルをレンダリング（2Dキャンバスでテキストを描画）
     this.labelLayer.render();
   }
 
@@ -231,10 +201,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param geojsonData ラベルポイントを含むGeoJSON FeatureCollection
    */
   loadLabels(geojsonData: any): void {
-    // GeoJSONデータをラベルレイヤーに渡す
     this.labelLayer.loadLabels(geojsonData);
-
-    // 新しいラベルを表示するために再レンダリング
     this.render();
   }
 
@@ -243,7 +210,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param options 更新する設定オプション
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
-    // データレイヤーの設定を更新（変更があればonDataChangedが呼ばれる）
     if (options.data !== undefined) {
       const result = this.dataLayer.updateOptions({
         sizeSql: options.data.sizeSql,
@@ -252,7 +218,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         gpuFilterColumns: options.data.gpuFilterColumns,
       });
 
-      // GPUフィルターカラムが変更された場合は再読み込み
       if (result.gpuFilterColumnsChanged) {
         const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
         if (gpuFilterData) {
@@ -263,14 +228,12 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         }
       }
 
-      // GPUフィルター条件を更新
       if (options.data.gpuWhereConditions !== undefined) {
         const conditions = this.convertGpuWhereConditions(options.data.gpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
       }
     }
 
-    // GPUレイヤーの設定を更新
     if (options.gpu !== undefined || options.data?.visiblePointLimit !== undefined) {
       this.gpuLayer.updateOptions({
         backgroundColor: options.gpu?.backgroundColor,
@@ -278,7 +241,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       });
     }
 
-    // ラベルレイヤーの設定を更新
     if (options.labels !== undefined) {
       this.labelLayer.updateOptions({
         labelFontSize: options.labels.fontSize,
@@ -287,13 +249,11 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         hoverOutlineOptions: options.labels.hoverOutlineOptions,
       });
 
-      // URLが指定されている場合はラベルを読み込む
       if (options.labels.url !== undefined) {
         await this.loadLabelsFromUrl(options.labels.url);
       }
     }
 
-    // インタラクションコールバックを更新
     if (options.interaction !== undefined) {
       this.labelLayer.updateOptions({
         onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
@@ -301,7 +261,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       });
     }
 
-    // 再レンダリング
     this.render();
   }
 
@@ -311,11 +270,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param height 新しい高さ（ピクセル）
    */
   resize(width: number, height: number): void {
-    // GPUレイヤーのキャンバスサイズを更新
     this.gpuLayer.resize(width, height);
-    // ラベルレイヤーのキャンバスサイズを更新
     this.labelLayer.resize(width, height);
-    // 新しいサイズで再レンダリング
     this.render();
   }
 
@@ -324,13 +280,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param zoom ズームレベル（1.0 = 通常、>1.0 = ズームイン、<1.0 = ズームアウト）
    */
   setZoom(zoom: number): void {
-    // GPUレイヤーのズームを更新
     this.gpuLayer.setZoom(zoom);
-
-    // ラベルレイヤーのビュー変換を同期
     this.syncLabelViewTransform();
-
-    // 即座にレンダリング
     this.render();
   }
 
@@ -347,7 +298,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param factor ズーム倍率（デフォルト: 1.2）
    */
   zoomIn(factor: number = 1.2): void {
-    // 現在のズームレベルに倍率を掛ける
     this.setZoom(this.gpuLayer.getZoom() * factor);
   }
 
@@ -356,7 +306,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param factor ズーム倍率（デフォルト: 1.2）
    */
   zoomOut(factor: number = 1.2): void {
-    // 現在のズームレベルを倍率で割る
     this.setZoom(this.gpuLayer.getZoom() / factor);
   }
 
@@ -367,13 +316,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param screenY 画面Y座標（キャンバスピクセル単位）
    */
   zoomToPoint(newZoom: number, screenX: number, screenY: number): void {
-    // GPUレイヤーで指定座標を中心にズーム処理
     this.gpuLayer.zoomToPoint(newZoom, screenX, screenY);
-
-    // ラベルレイヤーのビュー変換を同期
     this.syncLabelViewTransform();
-
-    // 即座にレンダリング
     this.render();
   }
 
@@ -381,15 +325,9 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * ズームとパンをデフォルト値にリセットする
    */
   resetView(): void {
-    // ズームを1.0（初期値）に設定
     this.gpuLayer.setZoom(1.0);
-    // パンを原点(0, 0)に設定
     this.gpuLayer.setPan(0.0, 0.0);
-
-    // ラベルレイヤーのビュー変換を同期
     this.syncLabelViewTransform();
-
-    // 即座にレンダリング
     this.render();
   }
 
@@ -399,13 +337,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param y 正規化座標でのY方向パンオフセット（-1から1）
    */
   setPan(x: number, y: number): void {
-    // GPUレイヤーのパンを更新
     this.gpuLayer.setPan(x, y);
-
-    // ラベルレイヤーのビュー変換を同期
     this.syncLabelViewTransform();
-
-    // 即座にレンダリング
     this.render();
   }
 
@@ -423,9 +356,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param dy 正規化座標でのY方向の差分
    */
   pan(dx: number, dy: number): void {
-    // 現在のパン位置を取得
     const currentPan = this.gpuLayer.getPan();
-    // 差分を加算して新しいパン位置を設定
     this.setPan(currentPan.x + dx, currentPan.y + dy);
   }
 
@@ -446,7 +377,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     data: { row: any[]; columns: string[] } | null,
     userCallback?: any
   ): void {
-    // ユーザーのコールバックが指定されている場合は呼び出す
     if (userCallback) {
       userCallback(data);
     }
@@ -496,18 +426,15 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @returns ポイントが見つかりホバーされた場合はtrue、そうでない場合はfalse
    */
   async setPointHover(pointId: PointId): Promise<boolean> {
-    // データレイヤーが初期化されていない場合は失敗
     if (!this.dataLayer.isInitialized()) {
       return false;
     }
 
-    // 指定されたIDでポイントデータを検索
     const pointData = await this.dataLayer.findPointById(pointId);
     if (!pointData) {
       return false;
     }
 
-    // ラベルレイヤーにホバー状態を設定
     this.labelLayer.setHoveredPoint(pointData);
     return true;
   }
@@ -533,13 +460,11 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @returns ラベルが見つかりホバーされた場合はtrue、そうでない場合はfalse
    */
   setLabelHover(identifier: LabelIdentifier): boolean {
-    // 識別子でラベルを検索
     const label = this.labelLayer.findLabel(identifier);
     if (!label) {
       return false;
     }
 
-    // ラベルレイヤーにホバー状態を設定
     this.labelLayer.setHoveredLabel(label);
     return true;
   }
@@ -563,9 +488,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * すべてのホバー状態をクリアする（ポイントとラベルの両方）
    */
   clearAllHover(): void {
-    // ポイントのホバー状態をクリア
     this.labelLayer.setHoveredPoint(null);
-    // ラベルのホバー状態をクリア
     this.labelLayer.setHoveredLabel(null);
   }
 
@@ -611,11 +534,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * リソースを破棄する
    */
   async destroy(): Promise<void> {
-    // データレイヤーのリソースを破棄（DuckDB接続を閉じる）
     await this.dataLayer.destroy();
-    // GPUレイヤーのリソースを破棄（GPUバッファを解放）
     this.gpuLayer.destroy();
-    // ラベルレイヤーのリソースを破棄（キャンバスを削除）
     this.labelLayer.destroy();
   }
 }
