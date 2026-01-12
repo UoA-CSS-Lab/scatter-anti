@@ -106,6 +106,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
           idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
+          visiblePointLimit: filtersRef.current.visiblePointLimit,
           gpuFilterColumns: ['created_at'],
         },
         gpu: {

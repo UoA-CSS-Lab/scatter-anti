@@ -1,6 +1,5 @@
 'use client';
 
-import { PointSizeSlider } from './PointSizeSlider';
 import { PointAlphaSlider } from './PointAlphaSlider';
 import { PointSizeScaleSlider } from './PointSizeScaleSlider';
 import { ColorExpressionInput } from './ColorExpressionInput';
@@ -19,7 +18,6 @@ export function ControlPanel() {
         <StatsDisplay />
       </div>
       <PointLimitSlider />
-      <PointSizeSlider />
       <PointAlphaSlider />
       <PointSizeScaleSlider />
       <TimeFilterSlider />
