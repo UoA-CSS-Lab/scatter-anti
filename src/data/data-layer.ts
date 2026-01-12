@@ -4,6 +4,9 @@ import type { WhereCondition, ScatterPlotError, PointId } from '../types.js';
 import { createError } from '../errors.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 
+/** DataLayer未初期化エラーメッセージ */
+const ERROR_NOT_INITIALIZED = 'DataLayer not initialized. Call initialize() first.';
+
 /**
  * DataLayerの設定オプション
  */
@@ -97,7 +100,7 @@ export class DataLayer {
    */
   async loadLabelData(geojson: any): Promise<void> {
     if (!this.repository) {
-      throw new Error('DataLayer not initialized. Call initialize() first.');
+      throw new Error(ERROR_NOT_INITIALIZED);
     }
     await this.repository.loadGeoJson(geojson);
   }
@@ -314,10 +317,9 @@ export class DataLayer {
   /**
    * 設定オプションを更新する
    * @param options 更新する設定オプション
-   * @returns データ再読み込みが必要な場合はtrue
+   * @returns GPUフィルターカラムが変更された場合はtrue
    */
   updateOptions(options: Partial<DataLayerOptions>): {
-    needsReload: boolean;
     gpuFilterColumnsChanged: boolean;
   } {
     let needsReload = false;
@@ -358,7 +360,7 @@ export class DataLayer {
       this.onDataChanged();
     }
 
-    return { needsReload, gpuFilterColumnsChanged };
+    return { gpuFilterColumnsChanged };
   }
 
   /**
@@ -468,13 +470,7 @@ export class DataLayer {
       return null;
     }
 
-    const row: any[] = new Array(data.columns.length);
-    for (let j = 0; j < data.columns.length; j++) {
-      const column = data.columnData.get(data.columns[j]);
-      row[j] = column?.get(0);
-    }
-
-    return { row, columns: data.columns };
+    return { row: this.buildRowFromData(data, 0), columns: data.columns };
   }
 
   /**
@@ -506,13 +502,22 @@ export class DataLayer {
       return null;
     }
 
+    return { row: this.buildRowFromData(data, 0), columns: data.columns };
+  }
+
+  /**
+   * ParquetDataから指定行のデータを配列として構築する
+   * @param data ParquetData
+   * @param rowIndex 行インデックス
+   * @returns 行データの配列
+   */
+  private buildRowFromData(data: ParquetData, rowIndex: number): any[] {
     const row: any[] = new Array(data.columns.length);
     for (let j = 0; j < data.columns.length; j++) {
       const column = data.columnData.get(data.columns[j]);
-      row[j] = column?.get(0);
+      row[j] = column?.get(rowIndex);
     }
-
-    return { row, columns: data.columns };
+    return row;
   }
 
   /**

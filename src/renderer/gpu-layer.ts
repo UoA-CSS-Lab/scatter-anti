@@ -685,13 +685,6 @@ export class GpuLayer {
   }
 
   /**
-   * キャンバスのアスペクト比（幅/高さ）を取得する
-   */
-  getAspectRatio(): number {
-    return this.canvas.width / this.canvas.height;
-  }
-
-  /**
    * 指定した画面座標を中心にズームする
    */
   zoomToPoint(newZoom: number, screenX: number, screenY: number): void {

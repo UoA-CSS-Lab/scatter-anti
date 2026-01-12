@@ -1,5 +1,8 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 
+/** データベース未初期化エラーメッセージ */
+const ERROR_DB_NOT_INITIALIZED = 'Database not initialized. Call initialize() first.';
+
 /**
  * Parquetデータの構造を表すインターフェース
  */
@@ -59,7 +62,7 @@ export class ParquetReader {
   async loadParquetFromUrl(url: string, idColumn: string): Promise<void> {
     // 初期化チェック
     if (!this.conn) {
-      throw new Error('Database not initialized. Call initialize() first.');
+      throw new Error(ERROR_DB_NOT_INITIALIZED);
     }
 
     // URLからParquetファイルをフェッチ
@@ -89,7 +92,7 @@ export class ParquetReader {
   async query(queryObj: any): Promise<ParquetData> {
     // 初期化チェック
     if (!this.conn) {
-      throw new Error('Database not initialized. Call initialize() first.');
+      throw new Error(ERROR_DB_NOT_INITIALIZED);
     }
 
     // クエリオブジェクトからSQL文字列を取得
@@ -122,7 +125,7 @@ export class ParquetReader {
   async loadGeoJson(geojson: any): Promise<void> {
     // 初期化チェック
     if (!this.conn) {
-      throw new Error('Database not initialized. Call initialize() first.');
+      throw new Error(ERROR_DB_NOT_INITIALIZED);
     }
 
     const features = geojson.features;

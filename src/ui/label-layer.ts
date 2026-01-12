@@ -30,10 +30,6 @@ export interface LabelLayerOptions {
   hoverOutlineOptions?: HoverOutlineOptions;
   /** データレイヤー参照 */
   dataLayer?: DataLayer;
-  /** アウトライン付きポイントの追加サイズ */
-  outlinedPointAddition?: number;
-  /** ホバー時の最小サイズ */
-  minimumHoverSize?: number;
 }
 
 /**
@@ -234,21 +230,8 @@ export class LabelLayer {
 
     // 各ラベルを衝突検出しながら描画
     for (const { label, passedFilter } of labelsWithFilter) {
-      // ラベルのワールド座標を取得
-      const worldX = label.x;
-      const worldY = label.y;
-
-      // アスペクト比を計算
-      const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
-
-      // ズームとパンを適用してクリップ空間座標に変換
-      const clipX = worldX * (this.zoom / aspectRatio) + this.panX;
-      const clipY = worldY * this.zoom + this.panY;
-
-      // クリップ空間（-1〜1）からスクリーン空間（0〜キャンバスサイズ）に変換
-      const screenX = (clipX + 1) * 0.5 * this.labelCanvas.width;
-      // Y軸を反転してスクリーン座標に変換
-      const screenY = (1 - clipY) * 0.5 * this.labelCanvas.height;
+      // ラベルのワールド座標をスクリーン座標に変換
+      const { x: screenX, y: screenY } = this.worldToScreenCoords(label.x, label.y);
 
       // 可視範囲内かチェック
       if (
@@ -371,20 +354,11 @@ export class LabelLayer {
       return;
     }
 
-    // ワールド座標を取得
-    const worldX = this.hoveredPoint.row[xIndex];
-    const worldY = this.hoveredPoint.row[yIndex];
-
-    // アスペクト比を計算
-    const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
-
-    // ズームとパンを適用してクリップ空間座標に変換
-    const clipX = worldX * (this.zoom / aspectRatio) + this.panX;
-    const clipY = worldY * this.zoom + this.panY;
-
-    // クリップ空間からスクリーン空間に変換
-    const screenX = (clipX + 1) * 0.5 * this.labelCanvas.width;
-    const screenY = (1 - clipY) * 0.5 * this.labelCanvas.height;
+    // ワールド座標をスクリーン座標に変換
+    const { x: screenX, y: screenY } = this.worldToScreenCoords(
+      this.hoveredPoint.row[xIndex],
+      this.hoveredPoint.row[yIndex]
+    );
 
     // ポイントのサイズをデータレイヤーから取得
     const baseSize = this.dataLayer.getPointSize(this.hoveredPoint.row, this.hoveredPoint.columns);
@@ -760,6 +734,24 @@ export class LabelLayer {
    */
   getHoveredLabel(): Label | null {
     return this.hoveredLabel;
+  }
+
+  /**
+   * ワールド座標をスクリーン座標に変換する
+   * @param worldX ワールドX座標
+   * @param worldY ワールドY座標
+   * @returns スクリーン座標
+   */
+  private worldToScreenCoords(worldX: number, worldY: number): { x: number; y: number } {
+    if (!this.labelCanvas) {
+      return { x: 0, y: 0 };
+    }
+    const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
+    const clipX = worldX * (this.zoom / aspectRatio) + this.panX;
+    const clipY = worldY * this.zoom + this.panY;
+    const screenX = (clipX + 1) * 0.5 * this.labelCanvas.width;
+    const screenY = (1 - clipY) * 0.5 * this.labelCanvas.height;
+    return { x: screenX, y: screenY };
   }
 
   /**

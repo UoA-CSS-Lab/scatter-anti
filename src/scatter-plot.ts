@@ -327,9 +327,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     // GPUレイヤーのズームを更新
     this.gpuLayer.setZoom(zoom);
 
-    // ラベルレイヤーのビュー変換を更新
-    const pan = this.gpuLayer.getPan();
-    this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
+    // ラベルレイヤーのビュー変換を同期
+    this.syncLabelViewTransform();
 
     // 即座にレンダリング
     this.render();
@@ -371,9 +370,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     // GPUレイヤーで指定座標を中心にズーム処理
     this.gpuLayer.zoomToPoint(newZoom, screenX, screenY);
 
-    // ラベルレイヤーのビュー変換を更新
-    const pan = this.gpuLayer.getPan();
-    this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
+    // ラベルレイヤーのビュー変換を同期
+    this.syncLabelViewTransform();
 
     // 即座にレンダリング
     this.render();
@@ -388,8 +386,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     // パンを原点(0, 0)に設定
     this.gpuLayer.setPan(0.0, 0.0);
 
-    // ラベルレイヤーのビュー変換を初期値に更新
-    this.labelLayer.updateViewTransform(1.0, 0.0, 0.0);
+    // ラベルレイヤーのビュー変換を同期
+    this.syncLabelViewTransform();
 
     // 即座にレンダリング
     this.render();
@@ -404,8 +402,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     // GPUレイヤーのパンを更新
     this.gpuLayer.setPan(x, y);
 
-    // ラベルレイヤーのビュー変換を更新
-    this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), x, y);
+    // ラベルレイヤーのビュー変換を同期
+    this.syncLabelViewTransform();
 
     // 即座にレンダリング
     this.render();
@@ -429,6 +427,14 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     const currentPan = this.gpuLayer.getPan();
     // 差分を加算して新しいパン位置を設定
     this.setPan(currentPan.x + dx, currentPan.y + dy);
+  }
+
+  /**
+   * ラベルレイヤーのビュー変換をGPUレイヤーと同期する
+   */
+  private syncLabelViewTransform(): void {
+    const pan = this.gpuLayer.getPan();
+    this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
   }
 
   /**
