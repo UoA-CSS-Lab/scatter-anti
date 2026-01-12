@@ -416,10 +416,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     return this.labelLayer.getLabels();
   }
 
-  // ============================================
-  // プログラマティックホバー制御API
-  // ============================================
-
   /**
    * IDを指定してプログラム的にポイントをホバー状態にする
    * @param pointId ホバーするポイントのidColumn値
@@ -491,10 +487,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     this.labelLayer.setHoveredPoint(null);
     this.labelLayer.setHoveredLabel(null);
   }
-
-  // ============================================
-  // ポイント表示スタイルAPI
-  // ============================================
 
   /**
    * グローバル透明度を設定する

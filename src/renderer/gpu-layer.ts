@@ -41,7 +41,6 @@ export class GpuLayer {
   /** 描画対象のキャンバス */
   private readonly canvas: HTMLCanvasElement;
 
-  // パイプライン
   /** レンダーパイプライン */
   private renderPipeline: GPURenderPipeline | null = null;
   /** フィルタリング用コンピュートパイプライン */
@@ -49,7 +48,6 @@ export class GpuLayer {
   /** Indirect Buffer更新用コンピュートパイプライン */
   private updateIndirectPipeline: GPUComputePipeline | null = null;
 
-  // バッファ
   /** クワッド頂点バッファ（stepMode: 'vertex'） */
   private quadVertexBuffer: GPUBuffer | null = null;
   /** 全ポイントデータバッファ (Storage) */
@@ -74,7 +72,6 @@ export class GpuLayer {
   /** GPUフィルターカラム数 */
   private gpuFilterColumnCount: number = 0;
 
-  // バインドグループ
   /** レンダリング用バインドグループ */
   private renderBindGroup: GPUBindGroup | null = null;
   /** フィルタリング用バインドグループ */
@@ -91,7 +88,6 @@ export class GpuLayer {
   /** フィルタリング結果が有効かどうか */
   private filterResultValid: boolean = false;
 
-  // ズームとパンの状態
   /** 現在のズームレベル */
   private zoom: number = 1.0;
   /** 現在のX方向パンオフセット */

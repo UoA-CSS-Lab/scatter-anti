@@ -183,19 +183,15 @@ export type ErrorCategory = 'webgpu' | 'data' | 'label' | 'query' | 'network';
 
 /** すべての可能なエラーのエラーコード */
 export type ErrorCode =
-  // WebGPUエラー
   | 'WEBGPU_NOT_SUPPORTED'
   | 'GPU_ADAPTER_NOT_AVAILABLE'
   | 'GPU_DEVICE_FAILED'
   | 'WEBGPU_CONTEXT_FAILED'
-  // データエラー
   | 'DATA_LAYER_NOT_INITIALIZED'
   | 'PARQUET_LOAD_FAILED'
   | 'QUERY_FAILED'
-  // ラベルエラー
   | 'LABEL_FETCH_FAILED'
   | 'LABEL_PARSE_FAILED'
-  // ネットワークエラー
   | 'NETWORK_ERROR';
 
 /** エラーイベントペイロード */
