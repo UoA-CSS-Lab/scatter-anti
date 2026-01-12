@@ -332,8 +332,12 @@ export class DataLayer {
       needsReload = true;
     }
     if (options.whereConditions !== undefined) {
-      this.whereConditions = options.whereConditions;
-      needsReload = true;
+      const oldConditions = JSON.stringify(this.whereConditions);
+      const newConditions = JSON.stringify(options.whereConditions);
+      if (oldConditions !== newConditions) {
+        this.whereConditions = options.whereConditions;
+        needsReload = true;
+      }
     }
     if (options.gpuFilterColumns !== undefined) {
       const oldColumns = this.gpuFilterColumns.join(',');
