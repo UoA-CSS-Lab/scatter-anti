@@ -1,12 +1,14 @@
 'use client';
 
-import { PointSizeSlider } from './PointSizeSlider';
+import { PointAlphaSlider } from './PointAlphaSlider';
+import { PointSizeScaleSlider } from './PointSizeScaleSlider';
 import { ColorExpressionInput } from './ColorExpressionInput';
 import { SearchBox } from './SearchBox';
 import { LabelFilterInput } from './LabelFilterInput';
 import { PointLimitSlider } from './PointLimitSlider';
 import { StatsDisplay } from './StatsDisplay';
 import { HoverControlPanel } from './HoverControlPanel';
+import { TimeFilterSlider } from './TimeFilterSlider';
 
 export function ControlPanel() {
   return (
@@ -16,7 +18,9 @@ export function ControlPanel() {
         <StatsDisplay />
       </div>
       <PointLimitSlider />
-      <PointSizeSlider />
+      <PointAlphaSlider />
+      <PointSizeScaleSlider />
+      <TimeFilterSlider />
       <ColorExpressionInput />
       <SearchBox />
       <LabelFilterInput />
