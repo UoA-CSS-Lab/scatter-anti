@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useScatterPlot } from '../context/ScatterPlotContext';
 
 export function TimeFilterSlider() {
@@ -9,14 +9,16 @@ export function TimeFilterSlider() {
 
   const [minValue, setMinValue] = useState<number>(0);
   const [maxValue, setMaxValue] = useState<number>(0);
+  const [prevTimeRange, setPrevTimeRange] = useState(timeRange);
 
-  // timeRangeが取得されたら初期値を設定
-  useEffect(() => {
+  // timeRangeが変更されたら値を更新（レンダー中のステート更新パターン）
+  if (timeRange !== prevTimeRange) {
+    setPrevTimeRange(timeRange);
     if (timeRange) {
       setMinValue(timeRange.min);
       setMaxValue(timeRange.max);
     }
-  }, [timeRange]);
+  }
 
   const handleMinChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
