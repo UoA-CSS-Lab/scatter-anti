@@ -13,6 +13,8 @@ export type {
   RawSqlFilter,
   NumericOperator,
   StringOperator,
+  // GPU filter types
+  GpuWhereCondition,
   // Error handling types
   ErrorSeverity,
   ErrorCategory,

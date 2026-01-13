@@ -1,21 +1,21 @@
 /**
- * Type definitions for scatter-anti library
+ * scatter-antiライブラリの型定義
  */
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
 export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
 
-/** Point identifier type (value from idColumn) */
+/** ポイント識別子の型（idColumnの値） */
 export type PointId = string | number;
 
-/** Label identifier for programmatic hover control */
+/** プログラムによるホバー制御用のラベル識別子 */
 export interface LabelIdentifier {
-  /** Identify label by text */
+  /** テキストでラベルを識別 */
   text?: string;
-  /** Identify label by cluster number */
+  /** クラスター番号でラベルを識別 */
   cluster?: number;
 }
 
-/** Callback fired when a label is hovered */
+/** ラベルがホバーされた時に発火するコールバック */
 export type LabelHoverCallback = (label: Label | null) => void;
 
 export interface ColorRGBA {
@@ -26,41 +26,41 @@ export interface ColorRGBA {
 }
 
 export interface HoverOutlineOptions {
-  /** Enable hover outline (default: true) */
+  /** ホバーアウトラインを有効化（デフォルト: true） */
   enabled?: boolean;
-  /** Outline stroke color (default: white) */
+  /** アウトラインの線色（デフォルト: 白） */
   color?: string;
-  /** Outline stroke width in pixels (default: 2) */
+  /** アウトラインの線幅（ピクセル単位、デフォルト: 2） */
   width?: number;
   minimumHoverSize?: number;
   outlinedPointAddition?: number;
 }
 
 export interface Label {
-  /** Label text to display */
+  /** 表示するラベルテキスト */
   text: string;
-  /** X coordinate in data space */
+  /** データ空間でのX座標 */
   x: number;
-  /** Y coordinate in data space */
+  /** データ空間でのY座標 */
   y: number;
-  /** Optional label properties */
+  /** オプションのラベルプロパティ */
   cluster?: number;
   count?: number;
-  /** Original GeoJSON feature properties */
+  /** 元のGeoJSONフィーチャーのプロパティ */
   properties?: Record<string, any>;
 }
 
 /**
- * WHERE condition filters for data queries
+ * データクエリ用のWHERE条件フィルター
  */
 
-/** Numeric comparison operators */
+/** 数値比較演算子 */
 export type NumericOperator = '>=' | '>' | '<=' | '<';
 
-/** String comparison operators */
+/** 文字列比較演算子 */
 export type StringOperator = 'contains' | 'equals' | 'startsWith' | 'endsWith';
 
-/** Numeric filter condition */
+/** 数値フィルター条件 */
 export interface NumericFilter {
   type: 'numeric';
   column: string;
@@ -68,7 +68,7 @@ export interface NumericFilter {
   value: number;
 }
 
-/** String filter condition */
+/** 文字列フィルター条件 */
 export interface StringFilter {
   type: 'string';
   column: string;
@@ -76,127 +76,143 @@ export interface StringFilter {
   value: string;
 }
 
-/** Raw SQL filter condition */
+/** 生SQLフィルター条件 */
 export interface RawSqlFilter {
   type: 'raw';
   sql: string;
 }
 
-/** Union type for all WHERE conditions */
+/** すべてのWHERE条件の共用体型 */
 export type WhereCondition = NumericFilter | StringFilter | RawSqlFilter;
 
+/** GPUフィルター条件 (range only) */
+export interface GpuWhereCondition {
+  /** フィルター対象のカラム名 (gpuFilterColumnsで指定した名前) */
+  column: string;
+  /** 最小値 (指定しない場合は -Infinity) */
+  min?: number;
+  /** 最大値 (指定しない場合は +Infinity) */
+  max?: number;
+}
+
 export interface DataOptions {
-  /** Maximum number of visible points to render */
+  /** レンダリングする表示ポイントの最大数 */
   visiblePointLimit?: number;
 
-  /** SQL expression for point size (e.g., "LOG(favorite_count + 1) * 2 + 2") */
+  /** ポイントサイズ用のSQL式（例: "LOG(favorite_count + 1) * 2 + 2"） */
   sizeSql?: string;
 
-  /** SQL expression for point color as ARGB 32-bit integer (e.g., "0xFF0000FF") */
+  /** ポイントカラー用のSQL式（ARGB 32bit整数、例: "0xFF0000FF"） */
   colorSql?: string;
 
-  /** WHERE conditions to filter data (AND only) */
+  /** データをフィルタリングするWHERE条件（ANDのみ） */
   whereConditions?: WhereCondition[];
 
-  /** Column name to identify points */
+  /** GPUでフィルタリングするカラム名 (最大4つ) */
+  gpuFilterColumns?: string[];
+
+  /** GPU側で実行するフィルター条件 */
+  gpuWhereConditions?: GpuWhereCondition[];
+
+  /** ポイントを識別するカラム名 */
   idColumn: string;
 }
 
 export interface GpuOptions {
-  /** Background color (default: transparent black) */
+  /** 背景色（デフォルト: 透明な黒） */
   backgroundColor?: ColorRGBA;
+  /** グローバル透明度 (0.0-1.0, デフォルト: 1.0) */
+  pointAlpha?: number;
+  /** グローバルサイズスケール (デフォルト: 1.0) */
+  pointSizeScale?: number;
 }
 
 export interface LabelOptions {
-  /** URL to fetch label GeoJSON data from (auto-loads during initialization) */
+  /** ラベルGeoJSONデータを取得するURL（初期化時に自動ロード） */
   url?: string;
 
-  /** Font size for labels in pixels (default: 12) */
+  /** ラベルのフォントサイズ（ピクセル単位、デフォルト: 12） */
   fontSize?: number;
 
-  /** Filter function to control label visibility based on properties */
+  /** プロパティに基づいてラベルの表示を制御するフィルター関数 */
   filterLambda?: LabelFilterLambda;
 
-  /** Callback fired when a label is clicked */
+  /** ラベルがクリックされた時に発火するコールバック */
   onClick?: (label: Label) => void;
 
-  /** Options for point hover outline appearance */
+  /** ポイントホバーアウトラインの外観オプション */
   hoverOutlineOptions?: HoverOutlineOptions;
 }
 
 export interface InteractionOptions {
-  /** Callback fired when a point is hovered */
+  /** ポイントがホバーされた時に発火するコールバック */
   onPointHover?: PointHoverCallback;
-  /** Callback fired when a label is hovered */
+  /** ラベルがホバーされた時に発火するコールバック */
   onLabelHover?: LabelHoverCallback;
 }
 
 export interface ScatterPlotOptions {
-  /** Canvas element to render to */
+  /** レンダリング先のCanvas要素 */
   canvas: HTMLCanvasElement;
 
-  /** URL to fetch Parquet data from */
+  /** Parquetデータを取得するURL */
   dataUrl: string;
 
-  /** Data layer options */
+  /** データレイヤーオプション */
   data: DataOptions;
 
-  /** GPU rendering options */
+  /** GPUレンダリングオプション */
   gpu?: GpuOptions;
 
-  /** Label layer options */
+  /** ラベルレイヤーオプション */
   labels?: LabelOptions;
 
-  /** Interaction callbacks */
+  /** インタラクションコールバック */
   interaction?: InteractionOptions;
 }
 
 /**
- * Error handling types
+ * エラーハンドリング型
  */
 
-/** Error severity level */
+/** エラー重大度レベル */
 export type ErrorSeverity = 'fatal' | 'error' | 'warning';
 
-/** Error category */
+/** エラーカテゴリ */
 export type ErrorCategory = 'webgpu' | 'data' | 'label' | 'query' | 'network';
 
-/** Error codes for all possible errors */
+/** すべての可能なエラーのエラーコード */
 export type ErrorCode =
-  // WebGPU errors
   | 'WEBGPU_NOT_SUPPORTED'
   | 'GPU_ADAPTER_NOT_AVAILABLE'
   | 'GPU_DEVICE_FAILED'
   | 'WEBGPU_CONTEXT_FAILED'
-  // Data errors
   | 'DATA_LAYER_NOT_INITIALIZED'
   | 'PARQUET_LOAD_FAILED'
   | 'QUERY_FAILED'
-  // Label errors
   | 'LABEL_FETCH_FAILED'
   | 'LABEL_PARSE_FAILED'
-  // Network errors
   | 'NETWORK_ERROR';
 
-/** Error event payload */
+/** エラーイベントペイロード */
 export interface ScatterPlotError {
-  /** Error code for programmatic handling */
+  /** プログラムによるハンドリング用のエラーコード */
   code: ErrorCode;
-  /** Error category */
+  /** エラーカテゴリ */
   category: ErrorCategory;
-  /** Error severity */
+  /** エラー重大度 */
   severity: ErrorSeverity;
-  /** Human-readable error message */
+  /** 人が読めるエラーメッセージ */
   message: string;
-  /** Original error object if available */
+  /** 利用可能な場合、元のエラーオブジェクト */
   cause?: Error;
-  /** Additional context information */
+  /** 追加のコンテキスト情報 */
   context?: Record<string, unknown>;
-  /** Timestamp when error occurred */
+  /** エラーが発生したタイムスタンプ */
   timestamp: number;
 }
 
-/** Event map for ScatterPlot EventEmitter */
+/** ScatterPlot EventEmitter用のイベントマップ */
 export interface ScatterPlotEventMap {
   error: ScatterPlotError;
 }
