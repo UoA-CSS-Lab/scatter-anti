@@ -102,12 +102,6 @@ jobs:
           registry-url: ${{ matrix.registry-url }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPMJS_TOKEN }}
-      - name: Rename package for GitHub Packages
-        if: ${{ matrix.registry-url == 'https://npm.pkg.github.com' }}
-        run: |
-          npm pkg set name="@${{ github.repository_owner }}/scatter-anti"
-          echo "Package renamed to @${{ github.repository_owner }}/scatter-anti for GitHub Packages"
-
       - uses: actions/cache/restore@v5
         with:
           path: dist

@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Scatter Anti Example",
-  description: "Next.js example for scatter-anti library",
+  title: "DuckScatter Example",
+  description: "Next.js example for duckscatter library",
 };
 
 export default function RootLayout({

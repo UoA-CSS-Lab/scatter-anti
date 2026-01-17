@@ -184,7 +184,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     const hasListeners = this.emit('error', error);
     if (!hasListeners) {
       // eslint-disable-next-line no-console
-      console.warn('[scatter-anti]', `${error.code}: ${error.message}`);
+      console.warn('[duckscatter]', `${error.code}: ${error.message}`);
     }
   }
 

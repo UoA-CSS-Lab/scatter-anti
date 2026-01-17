@@ -1,5 +1,5 @@
 /**
- * scatter-antiライブラリの型定義
+ * duckscatterライブラリの型定義
  */
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
 export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
