@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import type { Label } from 'duckscatter';
+import type { Label } from '@uoa-css-lab/duckscatter';
 import { useScatterPlot } from '../context/ScatterPlotContext';
 
 const PAGE_SIZE = 20;

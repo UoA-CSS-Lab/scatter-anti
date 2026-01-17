@@ -1,7 +1,7 @@
 # duckscatter
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/UoA-CSS-Lab/duckscatter/blob/main/LICENSE)
-[![npm version](https://img.shields.io/npm/v/duckscatter.svg?style=flat)](https://www.npmjs.com/package/duckscatter)
+[![npm version](https://img.shields.io/npm/v/@uoa-css-lab/duckscatter.svg?style=flat)](https://www.npmjs.com/package/@uoa-css-lab/duckscatter)
 [![CI](https://github.com/UoA-CSS-Lab/duckscatter/actions/workflows/ci.yaml/badge.svg)](https://github.com/UoA-CSS-Lab/duckscatter/actions/workflows/ci.yaml)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/UoA-CSS-Lab/duckscatter)
 
