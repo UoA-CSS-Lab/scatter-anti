@@ -9,7 +9,7 @@ import {
   useEffect,
   type ReactNode,
 } from 'react';
-import type { ScatterPlot, WhereCondition, Label, PointId, LabelIdentifier, GpuWhereCondition } from 'scatter-anti';
+import type { ScatterPlot, WhereCondition, Label, PointId, LabelIdentifier, GpuWhereCondition } from 'duckscatter';
 
 interface ScatterPlotState {
   isInitialized: boolean;
@@ -95,7 +95,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
 
   const initializePlot = useCallback(
     async (canvas: HTMLCanvasElement) => {
-      const { ScatterPlot } = await import('scatter-anti');
+      const { ScatterPlot } = await import('duckscatter');
 
       setState((s) => ({ ...s, isLoading: true, error: null }));
 

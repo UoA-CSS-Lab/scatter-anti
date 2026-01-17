@@ -1,5 +1,5 @@
 {
-  "name": "scatter-anti",
+  "name": "duckscatter",
   "version": "1.2.1",
   "description": "A TypeScript library for plotting scatter charts using WebGPU",
   "main": "dist/index.js",

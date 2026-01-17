@@ -105,8 +105,8 @@ jobs:
       - name: Rename package for GitHub Packages
         if: ${{ matrix.registry-url == 'https://npm.pkg.github.com' }}
         run: |
-          npm pkg set name="@${{ github.repository_owner }}/scatter-anti"
-          echo "Package renamed to @${{ github.repository_owner }}/scatter-anti for GitHub Packages"
+          npm pkg set name="@${{ github.repository_owner }}/duckscatter"
+          echo "Package renamed to @${{ github.repository_owner }}/duckscatter for GitHub Packages"
 
       - uses: actions/cache/restore@v5
         with:

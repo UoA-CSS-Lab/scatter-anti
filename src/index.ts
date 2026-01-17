@@ -1,5 +1,5 @@
 /**
- * scatter-anti - WebGPUを使用して散布図を描画するTypeScriptライブラリ
+ * duckscatter - WebGPUを使用して散布図を描画するTypeScriptライブラリ
  */
 
 export { ScatterPlot } from './scatter-plot.js';
