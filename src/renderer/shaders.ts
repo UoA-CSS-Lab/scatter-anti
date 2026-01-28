@@ -20,7 +20,7 @@ struct FilterUniforms {
   lodThreshold: u32,
   totalPoints: u32,
   activeFilterMask: u32,
-  _padding: u32,
+  whereFilterEnabled: u32,
   filterRangeMin: vec4<f32>,
   filterRangeMax: vec4<f32>,
 }
@@ -30,6 +30,7 @@ struct FilterUniforms {
 @group(0) @binding(2) var<storage, read_write> counter: atomic<u32>;
 @group(0) @binding(3) var<uniform> uniforms: FilterUniforms;
 @group(0) @binding(4) var<storage, read> filterColumns: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> visibilityFlags: array<u32>;
 
 var<workgroup> localCount: atomic<u32>;
 var<workgroup> localIndices: array<u32, 256>;
@@ -39,6 +40,16 @@ fn pcgHash(input: u32) -> u32 {
     let state = input * 747796405u + 2891336453u;
     let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
     return (word >> 22u) ^ word;
+}
+
+fn isVisibleByWhereFilter(idx: u32) -> bool {
+  if (uniforms.whereFilterEnabled == 0u) {
+    return true;
+  }
+  let wordIndex = idx / 32u;
+  let bitIndex = idx % 32u;
+  let word = visibilityFlags[wordIndex];
+  return (word & (1u << bitIndex)) != 0u;
 }
 
 @compute @workgroup_size(256)
@@ -56,8 +67,12 @@ fn main(
 
   var myLocalSlot: u32 = 0xFFFFFFFFu;
   if (idx < uniforms.totalPoints) {
-    let hash = pcgHash(idx);
-    var isVisible = hash <= uniforms.lodThreshold;
+    var isVisible = isVisibleByWhereFilter(idx);
+
+    if (isVisible) {
+      let hash = pcgHash(idx);
+      isVisible = hash <= uniforms.lodThreshold;
+    }
 
     if (isVisible) {
       let point = allPoints[idx];

@@ -29,7 +29,6 @@ duckscatterは、Parquet形式のデータファイルを読み込みます。�
 |--------|------|------|
 | `x` | double | X座標 |
 | `y` | double | Y座標 |
-| IDカラム | 任意 | ポイントを識別するための一意キー（カラム名は`idColumn`オプションで指定） |
 
 その他のカラムはSQLで参照でき、色やサイズの計算に利用できます。
 
@@ -62,7 +61,6 @@ const plot = new ScatterPlot({
   canvas: HTMLCanvasElement,  // 描画先のcanvas要素
   dataUrl: string,            // ParquetファイルのURL
   data: {
-    idColumn: string,                         // IDカラム名（必須）
     visiblePointLimit?: number,               // 描画最大ポイント数（デフォルト: 100,000）
     sizeSql?: string,                         // サイズ計算SQL式（デフォルト: "3"）
     colorSql?: string,                        // 色計算SQL式（ARGB 32bit整数、デフォルト: "0x4D4D4DCC"）
@@ -125,7 +123,7 @@ await plot.initialize();
 
 ```typescript
 // 使用例
-await plot.setPointHover(12345);           // IDでポイントをホバー
+await plot.setPointHover(12345);           // rowidでポイントをホバー
 plot.setLabelHover({ text: 'Cluster A' }); // テキストでラベルをホバー
 plot.setLabelHover({ cluster: 5 });        // クラスタ番号でラベルをホバー
 plot.clearAllHover();                      // 全ホバー解除
@@ -139,7 +137,6 @@ GPUフィルタリングを使用すると、数値カラムの範囲フィル�
 const plot = new ScatterPlot({
   // ...
   data: {
-    idColumn: 'word',
     // GPUフィルタリング用のカラムを指定（最大4つ）
     gpuFilterColumns: ['frequency', 'length'],
     // フィルター条件を指定

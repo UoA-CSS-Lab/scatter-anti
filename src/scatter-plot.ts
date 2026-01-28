@@ -44,9 +44,9 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       colorSql: options.data.colorSql,
       whereConditions: options.data.whereConditions,
       gpuFilterColumns: options.data.gpuFilterColumns,
-      idColumn: options.data.idColumn,
       onError: (error) => this.emitError(error),
       onDataChanged: () => this.handleDataChanged(),
+      onVisibilityChanged: () => this.handleVisibilityChanged(),
     });
 
     this.gpuLayer = new GpuLayer({
@@ -84,6 +84,15 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
       }
 
+      // 初期WHERE条件がある場合はビットフラグを設定
+      const visibilityData = await this.dataLayer.loadVisibilityFlags();
+      if (visibilityData) {
+        const hasWhereConditions = visibilityData.flags.some((word) => word !== 0xffffffff);
+        if (hasWhereConditions) {
+          this.gpuLayer.uploadVisibilityFlags(visibilityData.flags, true);
+        }
+      }
+
       this.labelLayer.initialize();
     } catch (e) {
       const error = this.categorizeInitError(e);
@@ -97,16 +106,49 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
-   * データ変更時のハンドラ（sizeSql, colorSql, whereConditions変更時）
+   * データ変更時のハンドラ（sizeSql, colorSql変更時）
    */
   private async handleDataChanged(): Promise<void> {
     try {
       const allPointsData = await this.dataLayer.loadAllPoints();
       this.gpuLayer.uploadAllPoints(allPointsData);
+      // WHERE条件があればビットフラグを再設定、なければクリア
+      const visibilityData = await this.dataLayer.loadVisibilityFlags();
+      if (visibilityData) {
+        const hasWhereConditions = visibilityData.flags.some((word) => word !== 0xffffffff);
+        if (hasWhereConditions) {
+          this.gpuLayer.uploadVisibilityFlags(visibilityData.flags, true);
+        } else {
+          this.gpuLayer.clearVisibilityFlags();
+        }
+      } else {
+        this.gpuLayer.clearVisibilityFlags();
+      }
       this.render();
     } catch (e) {
       this.emitError(
         createError('QUERY_FAILED', 'Failed to reload data after options change', {
+          cause: e instanceof Error ? e : undefined,
+        })
+      );
+    }
+  }
+
+  /**
+   * WHERE条件変更時のハンドラ（ビジビリティフラグのみ更新）
+   */
+  private async handleVisibilityChanged(): Promise<void> {
+    try {
+      const visibilityData = await this.dataLayer.loadVisibilityFlags();
+      if (visibilityData) {
+        this.gpuLayer.uploadVisibilityFlags(visibilityData.flags, true);
+      } else {
+        this.gpuLayer.clearVisibilityFlags();
+      }
+      this.render();
+    } catch (e) {
+      this.emitError(
+        createError('QUERY_FAILED', 'Failed to update visibility flags', {
           cause: e instanceof Error ? e : undefined,
         })
       );

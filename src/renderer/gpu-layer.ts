@@ -66,9 +66,13 @@ export class GpuLayer {
   private computeUniformBuffer: GPUBuffer | null = null;
   /** GPUフィルターカラムデータバッファ */
   private filterColumnsBuffer: GPUBuffer | null = null;
+  /** WHERE条件による可視/非可視ビットマップバッファ */
+  private visibilityFlagsBuffer: GPUBuffer | null = null;
 
   /** GPUフィルター条件 */
   private gpuFilterConditions: { columnIndex: number; min: number; max: number }[] = [];
+  /** WHERE条件フィルタが有効かどうか */
+  private whereFilterEnabled: boolean = false;
   /** GPUフィルターカラム数 */
   private gpuFilterColumnCount: number = 0;
 
@@ -269,6 +273,17 @@ export class GpuLayer {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
 
+    // Visibility flags buffer: ceil(totalCount / 32) * 4 bytes (1 bit per point)
+    const visibilityFlagsSize = Math.max(4, Math.ceil(data.totalCount / 32) * 4);
+    this.visibilityFlagsBuffer = this.context.device.createBuffer({
+      size: visibilityFlagsSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    // Initialize all bits to 1 (all visible)
+    const initialFlags = new Uint32Array(Math.ceil(data.totalCount / 32));
+    initialFlags.fill(0xffffffff);
+    this.context.device.queue.writeBuffer(this.visibilityFlagsBuffer, 0, initialFlags);
+
     this.updateUniforms();
   }
 
@@ -287,7 +302,8 @@ export class GpuLayer {
       !this.indirectBuffer ||
       !this.computeUniformBuffer ||
       !this.renderUniformBuffer ||
-      !this.filterColumnsBuffer
+      !this.filterColumnsBuffer ||
+      !this.visibilityFlagsBuffer
     ) {
       return;
     }
@@ -300,6 +316,7 @@ export class GpuLayer {
         { binding: 2, resource: { buffer: this.atomicCounterBuffer } },
         { binding: 3, resource: { buffer: this.computeUniformBuffer } },
         { binding: 4, resource: { buffer: this.filterColumnsBuffer } },
+        { binding: 5, resource: { buffer: this.visibilityFlagsBuffer } },
       ],
     });
 
@@ -333,6 +350,7 @@ export class GpuLayer {
     if (newTotalCount > this.totalPointCount) {
       this.allPointsBuffer?.destroy();
       this.visibleIndicesBuffer?.destroy();
+      this.visibilityFlagsBuffer?.destroy();
 
       const pointsBufferSize = newTotalCount * 16;
       this.allPointsBuffer = this.context.device.createBuffer({
@@ -345,6 +363,18 @@ export class GpuLayer {
         size: indicesBufferSize,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
       });
+
+      // Recreate visibility flags buffer
+      const visibilityFlagsSize = Math.max(4, Math.ceil(newTotalCount / 32) * 4);
+      this.visibilityFlagsBuffer = this.context.device.createBuffer({
+        size: visibilityFlagsSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      // Initialize all bits to 1 (all visible)
+      const initialFlags = new Uint32Array(Math.ceil(newTotalCount / 32));
+      initialFlags.fill(0xffffffff);
+      this.context.device.queue.writeBuffer(this.visibilityFlagsBuffer, 0, initialFlags);
+      this.whereFilterEnabled = false;
 
       this.createBindGroups();
     }
@@ -495,6 +525,7 @@ export class GpuLayer {
     }
 
     computeUint32View[6] = activeFilterMask;
+    computeUint32View[7] = this.whereFilterEnabled ? 1 : 0;
 
     computeFloatView[8] = filterRangeMin[0];
     computeFloatView[9] = filterRangeMin[1];
@@ -708,6 +739,52 @@ export class GpuLayer {
   }
 
   /**
+   * WHERE条件によるビットフラグ配列をアップロードする
+   * @param flags ビットマップ配列（各u32に32ポイント分のフラグ）
+   * @param enabled フラグフィルタを有効にするか
+   */
+  uploadVisibilityFlags(flags: Uint32Array, enabled: boolean): void {
+    if (!this.context.device || !this.visibilityFlagsBuffer) return;
+
+    const requiredSize = flags.byteLength;
+    const currentSize = Math.max(4, Math.ceil(this.totalPointCount / 32) * 4);
+
+    if (requiredSize > currentSize) {
+      this.visibilityFlagsBuffer.destroy();
+      this.visibilityFlagsBuffer = this.context.device.createBuffer({
+        size: requiredSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      });
+      this.createBindGroups();
+    }
+
+    this.context.device.queue.writeBuffer(
+      this.visibilityFlagsBuffer,
+      0,
+      flags.buffer,
+      flags.byteOffset,
+      flags.byteLength
+    );
+    this.whereFilterEnabled = enabled;
+    this.filterResultValid = false;
+    this.updateUniforms();
+  }
+
+  /**
+   * WHERE条件フラグをクリア（全ポイント可視）
+   */
+  clearVisibilityFlags(): void {
+    if (!this.context.device || !this.visibilityFlagsBuffer) return;
+
+    const clearFlags = new Uint32Array(Math.ceil(this.totalPointCount / 32));
+    clearFlags.fill(0xffffffff);
+    this.context.device.queue.writeBuffer(this.visibilityFlagsBuffer, 0, clearFlags);
+    this.whereFilterEnabled = false;
+    this.filterResultValid = false;
+    this.updateUniforms();
+  }
+
+  /**
    * グローバル透明度を設定する
    * @param alpha 透明度 (0.0-1.0)
    */
@@ -752,6 +829,7 @@ export class GpuLayer {
     this.renderUniformBuffer?.destroy();
     this.computeUniformBuffer?.destroy();
     this.filterColumnsBuffer?.destroy();
+    this.visibilityFlagsBuffer?.destroy();
     this.context.destroy();
   }
 }

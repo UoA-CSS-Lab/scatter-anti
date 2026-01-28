@@ -4,8 +4,8 @@
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
 export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
 
-/** ポイント識別子の型（idColumnの値） */
-export type PointId = string | number;
+/** ポイント識別子の型（rowid） */
+export type PointId = number;
 
 /** プログラムによるホバー制御用のラベル識別子 */
 export interface LabelIdentifier {
@@ -113,9 +113,6 @@ export interface DataOptions {
 
   /** GPU側で実行するフィルター条件 */
   gpuWhereConditions?: GpuWhereCondition[];
-
-  /** ポイントを識別するカラム名 */
-  idColumn: string;
 }
 
 export interface GpuOptions {

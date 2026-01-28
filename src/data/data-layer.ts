@@ -19,19 +19,20 @@ export interface DataLayerOptions {
   whereConditions?: WhereCondition[];
   /** GPUでフィルタリングするカラム名（最大4つ） */
   gpuFilterColumns?: string[];
-  /** ポイントを識別するためのカラム名 */
-  idColumn: string;
   /** エラーをScatterPlotに通知するためのコールバック */
   onError?: (error: ScatterPlotError) => void;
   /** データ変更時に呼び出されるコールバック */
   onDataChanged?: () => void;
+  /** WHERE条件変更時にビジビリティフラグ更新が必要な場合のコールバック */
+  onVisibilityChanged?: () => void;
 }
 
 /**
  * 現在表示中のポイントデータ（ポイント検索用）
  */
 interface PointData {
-  id: string;
+  /** rowid (インデックス) */
+  rowid: number;
   x: number;
   y: number;
   size: number;
@@ -59,11 +60,13 @@ export class DataLayer {
   private onError?: (error: ScatterPlotError) => void;
   /** データ変更通知用コールバック */
   private onDataChanged?: () => void;
+  /** WHERE条件変更時のビジビリティ更新コールバック */
+  private onVisibilityChanged?: () => void;
 
   /** 全ポイントデータのキャッシュ（ポイント検索用） */
   private allPointsCache: PointData[] = [];
-  /** ポイント識別用のカラム名 */
-  private idColumn: string = '';
+  /** 全ポイント数のキャッシュ（ビジビリティフラグ生成用） */
+  private totalPointCount: number = 0;
 
   /**
    * DataLayerインスタンスを作成する
@@ -74,9 +77,9 @@ export class DataLayer {
     this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
     this.gpuFilterColumns = options.gpuFilterColumns ?? [];
-    this.idColumn = options.idColumn;
     this.onError = options.onError;
     this.onDataChanged = options.onDataChanged;
+    this.onVisibilityChanged = options.onVisibilityChanged;
   }
 
   /**
@@ -86,7 +89,7 @@ export class DataLayer {
    */
   async initialize(dataUrl: string): Promise<AllPointsData> {
     this.repository = await createParquetReader();
-    await this.repository.loadParquetFromUrl(dataUrl, this.idColumn);
+    await this.repository.loadParquetFromUrl(dataUrl);
     return await this.loadAllPoints();
   }
 
@@ -128,6 +131,7 @@ export class DataLayer {
 
   /**
    * 全データを読み込んでGPU用フォーマットに変換する
+   * WHERE条件によるフィルタリングはビットフラグで行うため、ここでは適用しない
    * @returns 処理済みの全データ
    */
   async loadAllPoints(): Promise<AllPointsData> {
@@ -139,14 +143,7 @@ export class DataLayer {
     }
 
     try {
-      const whereConditions: string[] = [];
-      for (const condition of this.whereConditions) {
-        whereConditions.push(this.buildWhereClauseString(condition));
-      }
-      const whereClause =
-        whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
-
-      const sql = `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data ${whereClause}`;
+      const sql = `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data ORDER BY rowid`;
 
       const data = await this.repository.query({ toString: () => sql });
 
@@ -235,6 +232,83 @@ export class DataLayer {
   }
 
   /**
+   * WHERE条件に基づいてビットフラグ配列を生成する
+   * @returns 可視ポイントのビットマップと総ポイント数、エラー時はnull
+   */
+  async loadVisibilityFlags(): Promise<{
+    flags: Uint32Array;
+    totalCount: number;
+  } | null> {
+    if (!this.repository) {
+      return null;
+    }
+
+    try {
+      // 全ポイント数を取得（キャッシュがない場合のみ）
+      let totalCount = this.totalPointCount;
+      if (totalCount === 0) {
+        const countResult = await this.repository.query({
+          toString: () => `SELECT COUNT(*) as cnt FROM parquet_data`,
+        });
+        totalCount = Number(countResult?.columnData.get('cnt')?.get(0) ?? 0);
+      }
+
+      if (totalCount === 0) {
+        return null;
+      }
+
+      // WHERE条件がない場合は全ポイント可視
+      if (this.whereConditions.length === 0) {
+        const wordCount = Math.ceil(totalCount / 32);
+        const flags = new Uint32Array(wordCount);
+        flags.fill(0xffffffff);
+        return { flags, totalCount };
+      }
+
+      // WHERE句を構築
+      const whereConditions: string[] = [];
+      for (const condition of this.whereConditions) {
+        whereConditions.push(this.buildWhereClauseString(condition));
+      }
+      const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+
+      // 可視ポイントのrowidを取得
+      const sql = `SELECT rowid AS __idx__ FROM parquet_data ${whereClause} ORDER BY __idx__`;
+      const data = await this.repository.query({ toString: () => sql });
+
+      if (!data) {
+        return null;
+      }
+
+      // ビットマップを構築（初期値は全て0=非可視）
+      const wordCount = Math.ceil(totalCount / 32);
+      const flags = new Uint32Array(wordCount);
+      flags.fill(0);
+
+      const idxColumn = data.columnData.get('__idx__');
+      if (idxColumn) {
+        for (let i = 0; i < data.rowCount; i++) {
+          const idx = Number(idxColumn.get(i));
+          const wordIndex = Math.floor(idx / 32);
+          const bitIndex = idx % 32;
+          flags[wordIndex] |= 1 << bitIndex;
+        }
+      }
+
+      return { flags, totalCount };
+    } catch (e) {
+      if (this.onError) {
+        this.onError(
+          createError('QUERY_FAILED', 'Failed to load visibility flags', {
+            cause: e instanceof Error ? e : undefined,
+          })
+        );
+      }
+      return null;
+    }
+  }
+
+  /**
    * カスタムSQLクエリを実行する
    * @param query SQLクエリ
    * @returns クエリ結果のParquetData
@@ -258,9 +332,8 @@ export class DataLayer {
     const yColumn = data.columnData.get('y');
     const sizeColumn = data.columnData.get('__size__');
     const colorColumn = data.columnData.get('__color__');
-    const idColumn = data.columnData.get(this.idColumn);
 
-    if (!xColumn || !yColumn || !sizeColumn || !colorColumn || !idColumn) {
+    if (!xColumn || !yColumn || !sizeColumn || !colorColumn) {
       return {
         instanceData: new Float32Array(0),
         totalCount: 0,
@@ -287,7 +360,7 @@ export class DataLayer {
       floatView[baseIndex + 3] = size;
 
       cachedData[i] = {
-        id: idColumn.get(i),
+        rowid: i,
         x: x,
         y: y,
         size: size,
@@ -295,6 +368,7 @@ export class DataLayer {
     }
 
     this.allPointsCache = cachedData;
+    this.totalPointCount = data.rowCount;
 
     return {
       instanceData: floatView,
@@ -305,28 +379,32 @@ export class DataLayer {
   /**
    * 設定オプションを更新する
    * @param options 更新する設定オプション
-   * @returns GPUフィルターカラムが変更された場合はtrue
+   * @returns 変更の種類を示すオブジェクト
    */
   updateOptions(options: Partial<DataLayerOptions>): {
+    needsFullReload: boolean;
+    needsVisibilityUpdate: boolean;
     gpuFilterColumnsChanged: boolean;
   } {
-    let needsReload = false;
+    let needsFullReload = false;
+    let needsVisibilityUpdate = false;
     let gpuFilterColumnsChanged = false;
 
     if (options.sizeSql !== undefined && options.sizeSql !== this.sizeSql) {
       this.sizeSql = options.sizeSql;
-      needsReload = true;
+      needsFullReload = true;
     }
     if (options.colorSql !== undefined && options.colorSql !== this.colorSql) {
       this.colorSql = options.colorSql;
-      needsReload = true;
+      needsFullReload = true;
     }
     if (options.whereConditions !== undefined) {
       const oldConditions = JSON.stringify(this.whereConditions);
       const newConditions = JSON.stringify(options.whereConditions);
       if (oldConditions !== newConditions) {
         this.whereConditions = options.whereConditions;
-        needsReload = true;
+        // WHERE条件変更時はフルリロードではなくビジビリティ更新のみ
+        needsVisibilityUpdate = true;
       }
     }
     if (options.gpuFilterColumns !== undefined) {
@@ -337,18 +415,20 @@ export class DataLayer {
         gpuFilterColumnsChanged = true;
       }
     }
-    if (options.idColumn !== undefined) {
-      this.idColumn = options.idColumn;
-    }
     if (options.onDataChanged !== undefined) {
       this.onDataChanged = options.onDataChanged;
     }
-
-    if (needsReload && this.onDataChanged) {
-      this.onDataChanged();
+    if (options.onVisibilityChanged !== undefined) {
+      this.onVisibilityChanged = options.onVisibilityChanged;
     }
 
-    return { gpuFilterColumnsChanged };
+    if (needsFullReload && this.onDataChanged) {
+      this.onDataChanged();
+    } else if (needsVisibilityUpdate && this.onVisibilityChanged) {
+      this.onVisibilityChanged();
+    }
+
+    return { needsFullReload, needsVisibilityUpdate, gpuFilterColumnsChanged };
   }
 
   /**
@@ -423,7 +503,7 @@ export class DataLayer {
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
 
-    let nearestId: string | null = null;
+    let nearestRowid: number | null = null;
     let nearestDistance = Infinity;
 
     for (let i = 0; i < this.allPointsCache.length; i++) {
@@ -436,17 +516,17 @@ export class DataLayer {
 
       if (distance < nearestDistance && distance <= thresholdWorld) {
         nearestDistance = distance;
-        nearestId = this.allPointsCache[i].id;
+        nearestRowid = this.allPointsCache[i].rowid;
       }
     }
 
-    if (nearestId == null) {
+    if (nearestRowid == null) {
       return null;
     }
 
     const data = await this.repository.query({
       toString: () =>
-        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
+        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${nearestRowid}`,
     });
 
     if (!data) {
@@ -465,8 +545,8 @@ export class DataLayer {
   }
 
   /**
-   * IDでポイントを検索する
-   * @param pointId 検索するポイントのidColumn値
+   * rowidでポイントを検索する
+   * @param pointId 検索するポイントのrowid
    * @returns 見つかった場合はポイントデータ、そうでない場合はnull
    */
   async findPointById(pointId: PointId): Promise<{ row: any[]; columns: string[] } | null> {
@@ -474,11 +554,9 @@ export class DataLayer {
       return null;
     }
 
-    const escapedId = typeof pointId === 'string' ? `'${pointId.replace(/'/g, "''")}'` : pointId;
-
     const data = await this.repository.query({
       toString: () =>
-        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${escapedId}`,
+        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${pointId}`,
     });
 
     if (!data || data.rowCount === 0) {
