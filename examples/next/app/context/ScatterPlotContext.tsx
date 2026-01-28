@@ -23,7 +23,7 @@ interface ScatterPlotState {
 }
 
 export interface PointListItem {
-  id: string | number;
+  id: number;
   x: number;
   y: number;
 }
@@ -103,7 +103,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         canvas,
         dataUrl: '/output.parquet',
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           visiblePointLimit: filtersRef.current.visiblePointLimit,
@@ -187,7 +186,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.sizeSql = sizeSql;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql,
           colorSql: filtersRef.current.colorSql,
           whereConditions: buildWhereConditions(),
@@ -204,7 +202,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.colorSql = colorSql;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql,
           whereConditions: buildWhereConditions(),
@@ -221,7 +218,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.searchText = searchText;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           whereConditions: buildWhereConditions(),
@@ -238,7 +234,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.visiblePointLimit = limit;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           visiblePointLimit: limit,
@@ -305,7 +300,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
 
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           gpuWhereConditions: gpuConditions,
@@ -332,7 +326,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       if (!plotRef.current) return [];
       const offset = page * pageSize;
       const result = await plotRef.current.runQuery(
-        `SELECT __index_level_0__ as id, x, y FROM parquet_data ORDER BY __index_level_0__ LIMIT ${pageSize} OFFSET ${offset}`
+        `SELECT rowid as id, x, y FROM parquet_data ORDER BY rowid LIMIT ${pageSize} OFFSET ${offset}`
       );
       if (!result || result.rowCount === 0) return [];
 
