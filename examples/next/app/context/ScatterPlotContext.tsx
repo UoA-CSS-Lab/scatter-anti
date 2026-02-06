@@ -43,6 +43,8 @@ interface ScatterPlotContextValue {
   updatePointAlpha: (alpha: number) => void;
   /** グローバルサイズスケールを設定 */
   updatePointSizeScale: (scale: number) => void;
+  /** フィルター除外ポイントの表示モードを設定 */
+  updateFilteredPointDisplayMode: (mode: 'hidden' | 'grayed') => void;
   // Hover control
   setPointHover: (pointId: PointId) => Promise<boolean>;
   setLabelHover: (identifier: LabelIdentifier) => boolean;
@@ -320,6 +322,11 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     plotRef.current.setPointSizeScale(scale);
   }, []);
 
+  const updateFilteredPointDisplayMode = useCallback((mode: 'hidden' | 'grayed') => {
+    if (!plotRef.current) return;
+    plotRef.current.setFilteredPointDisplayMode(mode);
+  }, []);
+
   // List data methods
   const fetchPoints = useCallback(
     async (page: number, pageSize: number): Promise<PointListItem[]> => {
@@ -375,6 +382,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         updateTimeFilter,
         updatePointAlpha,
         updatePointSizeScale,
+        updateFilteredPointDisplayMode,
         setPointHover,
         setLabelHover,
         clearAllHover,

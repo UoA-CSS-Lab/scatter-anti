@@ -1,6 +1,6 @@
 import { WebGPUContext } from './webgpu-context.js';
 import { scatterVertexShader, filterComputeShader, updateIndirectShader } from './shaders.js';
-import type { ColorRGBA } from '../types.js';
+import type { ColorRGBA, FilteredPointDisplayMode } from '../types.js';
 
 /**
  * GPU用に処理されたポイントデータ
@@ -69,6 +69,15 @@ export class GpuLayer {
   /** WHERE条件による可視/非可視ビットマップバッファ */
   private visibilityFlagsBuffer: GPUBuffer | null = null;
 
+  /** フィルター済みポイントインデックスバッファ (Storage) */
+  private filteredIndicesBuffer: GPUBuffer | null = null;
+  /** フィルター済みポイント用アトミックカウンターバッファ (Storage) */
+  private filteredCounterBuffer: GPUBuffer | null = null;
+  /** フィルター済みポイント用Indirect Drawingパラメータバッファ */
+  private filteredIndirectBuffer: GPUBuffer | null = null;
+  /** フィルター済みポイント用レンダリングユニフォームバッファ */
+  private filteredRenderUniformBuffer: GPUBuffer | null = null;
+
   /** GPUフィルター条件 */
   private gpuFilterConditions: { columnIndex: number; min: number; max: number }[] = [];
   /** WHERE条件フィルタが有効かどうか */
@@ -82,6 +91,13 @@ export class GpuLayer {
   private filterBindGroup: GPUBindGroup | null = null;
   /** Indirect更新用バインドグループ */
   private updateIndirectBindGroup: GPUBindGroup | null = null;
+  /** フィルター済みポイント用レンダリングバインドグループ */
+  private filteredRenderBindGroup: GPUBindGroup | null = null;
+  /** フィルター済みポイント用Indirect更新バインドグループ */
+  private filteredUpdateIndirectBindGroup: GPUBindGroup | null = null;
+
+  /** フィルターされたポイントの表示モード */
+  private filteredPointDisplayMode: FilteredPointDisplayMode = 'hidden';
 
   /** 全ポイント数 */
   private totalPointCount: number = 0;
@@ -263,7 +279,28 @@ export class GpuLayer {
     });
 
     this.computeUniformBuffer = this.context.device.createBuffer({
-      size: 64,
+      size: 80,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // フィルター済みポイント用バッファ
+    this.filteredIndicesBuffer = this.context.device.createBuffer({
+      size: indicesBufferSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
+    });
+
+    this.filteredCounterBuffer = this.context.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    this.filteredIndirectBuffer = this.context.device.createBuffer({
+      size: 20,
+      usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+
+    this.filteredRenderUniformBuffer = this.context.device.createBuffer({
+      size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -303,7 +340,11 @@ export class GpuLayer {
       !this.computeUniformBuffer ||
       !this.renderUniformBuffer ||
       !this.filterColumnsBuffer ||
-      !this.visibilityFlagsBuffer
+      !this.visibilityFlagsBuffer ||
+      !this.filteredIndicesBuffer ||
+      !this.filteredCounterBuffer ||
+      !this.filteredIndirectBuffer ||
+      !this.filteredRenderUniformBuffer
     ) {
       return;
     }
@@ -317,6 +358,8 @@ export class GpuLayer {
         { binding: 3, resource: { buffer: this.computeUniformBuffer } },
         { binding: 4, resource: { buffer: this.filterColumnsBuffer } },
         { binding: 5, resource: { buffer: this.visibilityFlagsBuffer } },
+        { binding: 6, resource: { buffer: this.filteredIndicesBuffer } },
+        { binding: 7, resource: { buffer: this.filteredCounterBuffer } },
       ],
     });
 
@@ -328,12 +371,29 @@ export class GpuLayer {
       ],
     });
 
+    this.filteredUpdateIndirectBindGroup = this.context.device.createBindGroup({
+      layout: this.updateIndirectPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.filteredCounterBuffer } },
+        { binding: 1, resource: { buffer: this.filteredIndirectBuffer } },
+      ],
+    });
+
     this.renderBindGroup = this.context.device.createBindGroup({
       layout: this.renderPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.renderUniformBuffer } },
         { binding: 1, resource: { buffer: this.allPointsBuffer } },
         { binding: 2, resource: { buffer: this.visibleIndicesBuffer } },
+      ],
+    });
+
+    this.filteredRenderBindGroup = this.context.device.createBindGroup({
+      layout: this.renderPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.filteredRenderUniformBuffer } },
+        { binding: 1, resource: { buffer: this.allPointsBuffer } },
+        { binding: 2, resource: { buffer: this.filteredIndicesBuffer } },
       ],
     });
   }
@@ -351,6 +411,7 @@ export class GpuLayer {
       this.allPointsBuffer?.destroy();
       this.visibleIndicesBuffer?.destroy();
       this.visibilityFlagsBuffer?.destroy();
+      this.filteredIndicesBuffer?.destroy();
 
       const pointsBufferSize = newTotalCount * 16;
       this.allPointsBuffer = this.context.device.createBuffer({
@@ -360,6 +421,11 @@ export class GpuLayer {
 
       const indicesBufferSize = newTotalCount * 4;
       this.visibleIndicesBuffer = this.context.device.createBuffer({
+        size: indicesBufferSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
+      });
+
+      this.filteredIndicesBuffer = this.context.device.createBuffer({
         size: indicesBufferSize,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.VERTEX,
       });
@@ -484,7 +550,21 @@ export class GpuLayer {
     renderUniformData[18] = this.canvas.height;
     renderUniformData[19] = this.pointAlpha;
     renderUniformData[20] = this.pointSizeScale;
+    // grayedMode: 0.0 (通常ポイント用)
+    renderUniformData[21] = 0.0;
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
+
+    // フィルター済みポイント用ユニフォーム（grayedMode = 1.0）
+    if (this.filteredRenderUniformBuffer) {
+      const filteredRenderUniformData = new Float32Array(24);
+      filteredRenderUniformData.set(renderUniformData);
+      filteredRenderUniformData[21] = 1.0; // grayedMode = 1.0
+      this.context.device.queue.writeBuffer(
+        this.filteredRenderUniformBuffer,
+        0,
+        filteredRenderUniformData
+      );
+    }
 
     // 逆変換を行ってワールド空間での境界を計算し、シェーダー内での行列演算を削除する
     const aspectRatio = this.canvas.width / this.canvas.height;
@@ -501,7 +581,7 @@ export class GpuLayer {
     const worldMinY = (clipMinY - this.panY) / scaleY;
     const worldMaxY = (clipMaxY - this.panY) / scaleY;
 
-    const computeUniformData = new ArrayBuffer(64);
+    const computeUniformData = new ArrayBuffer(80);
     const computeFloatView = new Float32Array(computeUniformData);
     const computeUint32View = new Uint32Array(computeUniformData);
 
@@ -537,6 +617,9 @@ export class GpuLayer {
     computeFloatView[14] = filterRangeMax[2];
     computeFloatView[15] = filterRangeMax[3];
 
+    // filteredDisplayMode: 0=hidden, 1=grayed
+    computeUint32View[16] = this.filteredPointDisplayMode === 'grayed' ? 1 : 0;
+
     this.context.device.queue.writeBuffer(this.computeUniformBuffer, 0, computeUniformData);
   }
 
@@ -555,15 +638,21 @@ export class GpuLayer {
       !this.updateIndirectBindGroup ||
       !this.renderBindGroup ||
       !this.atomicCounterBuffer ||
-      !this.indirectBuffer
+      !this.indirectBuffer ||
+      !this.filteredCounterBuffer ||
+      !this.filteredIndirectBuffer ||
+      !this.filteredUpdateIndirectBindGroup ||
+      !this.filteredRenderBindGroup
     ) {
       return;
     }
 
+    const isGrayed = this.filteredPointDisplayMode === 'grayed';
     const commandEncoder = this.context.device.createCommandEncoder();
 
     if (!this.filterResultValid) {
       this.context.device.queue.writeBuffer(this.atomicCounterBuffer, 0, new Uint32Array([0]));
+      this.context.device.queue.writeBuffer(this.filteredCounterBuffer, 0, new Uint32Array([0]));
 
       {
         const computePass = commandEncoder.beginComputePass();
@@ -574,10 +663,20 @@ export class GpuLayer {
         computePass.end();
       }
 
+      // 可視ポイント用Indirect Buffer更新
       {
         const computePass = commandEncoder.beginComputePass();
         computePass.setPipeline(this.updateIndirectPipeline);
         computePass.setBindGroup(0, this.updateIndirectBindGroup);
+        computePass.dispatchWorkgroups(1);
+        computePass.end();
+      }
+
+      // フィルター済みポイント用Indirect Buffer更新
+      if (isGrayed) {
+        const computePass = commandEncoder.beginComputePass();
+        computePass.setPipeline(this.updateIndirectPipeline);
+        computePass.setBindGroup(0, this.filteredUpdateIndirectBindGroup);
         computePass.dispatchWorkgroups(1);
         computePass.end();
       }
@@ -606,6 +705,14 @@ export class GpuLayer {
       renderPass.setPipeline(this.renderPipeline);
       renderPass.setVertexBuffer(0, this.quadVertexBuffer);
       renderPass.setIndexBuffer(this.indexBuffer!, 'uint16');
+
+      // フィルター済みポイント（灰色）を先に描画（背面）
+      if (isGrayed) {
+        renderPass.setBindGroup(0, this.filteredRenderBindGroup);
+        renderPass.drawIndexedIndirect(this.filteredIndirectBuffer, 0);
+      }
+
+      // 通常ポイントを描画（前面）
       renderPass.setBindGroup(0, this.renderBindGroup);
       renderPass.drawIndexedIndirect(this.indirectBuffer, 0);
       renderPass.end();
@@ -819,6 +926,25 @@ export class GpuLayer {
   /**
    * リソースを破棄する
    */
+  /**
+   * フィルターされたポイントの表示モードを設定する
+   */
+  setFilteredPointDisplayMode(mode: FilteredPointDisplayMode): void {
+    this.filteredPointDisplayMode = mode;
+    this.filterResultValid = false;
+    this.updateUniforms();
+  }
+
+  /**
+   * 現在のフィルター表示モードを取得する
+   */
+  getFilteredPointDisplayMode(): FilteredPointDisplayMode {
+    return this.filteredPointDisplayMode;
+  }
+
+  /**
+   * リソースを破棄する
+   */
   destroy(): void {
     this.quadVertexBuffer?.destroy();
     this.allPointsBuffer?.destroy();
@@ -830,6 +956,10 @@ export class GpuLayer {
     this.computeUniformBuffer?.destroy();
     this.filterColumnsBuffer?.destroy();
     this.visibilityFlagsBuffer?.destroy();
+    this.filteredIndicesBuffer?.destroy();
+    this.filteredCounterBuffer?.destroy();
+    this.filteredIndirectBuffer?.destroy();
+    this.filteredRenderUniformBuffer?.destroy();
     this.context.destroy();
   }
 }

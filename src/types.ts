@@ -95,6 +95,9 @@ export interface GpuWhereCondition {
   max?: number;
 }
 
+/** フィルターされたポイントの表示モード */
+export type FilteredPointDisplayMode = 'hidden' | 'grayed';
+
 export interface DataOptions {
   /** レンダリングする表示ポイントの最大数 */
   visiblePointLimit?: number;
@@ -113,6 +116,9 @@ export interface DataOptions {
 
   /** GPU側で実行するフィルター条件 */
   gpuWhereConditions?: GpuWhereCondition[];
+
+  /** フィルターされたポイントの表示モード（デフォルト: 'hidden'） */
+  filteredPointDisplayMode?: FilteredPointDisplayMode;
 }
 
 export interface GpuOptions {

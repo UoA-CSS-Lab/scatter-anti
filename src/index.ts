@@ -15,6 +15,7 @@ export type {
   StringOperator,
   // GPU filter types
   GpuWhereCondition,
+  FilteredPointDisplayMode,
   // Error handling types
   ErrorSeverity,
   ErrorCategory,

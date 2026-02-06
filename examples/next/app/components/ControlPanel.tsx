@@ -4,6 +4,7 @@ import { PointAlphaSlider } from './PointAlphaSlider';
 import { PointSizeScaleSlider } from './PointSizeScaleSlider';
 import { ColorExpressionInput } from './ColorExpressionInput';
 import { SearchBox } from './SearchBox';
+import { FilteredPointModeSelector } from './FilteredPointModeSelector';
 import { LabelFilterInput } from './LabelFilterInput';
 import { PointLimitSlider } from './PointLimitSlider';
 import { StatsDisplay } from './StatsDisplay';
@@ -23,6 +24,7 @@ export function ControlPanel() {
       <TimeFilterSlider />
       <ColorExpressionInput />
       <SearchBox />
+      <FilteredPointModeSelector />
       <LabelFilterInput />
       <HoverControlPanel />
     </div>

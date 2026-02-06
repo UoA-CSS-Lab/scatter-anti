@@ -6,6 +6,7 @@ import type {
   PointId,
   LabelIdentifier,
   GpuWhereCondition,
+  FilteredPointDisplayMode,
 } from './types.js';
 import { DataLayer, type ParquetData } from './data/index.js';
 import { GpuLayer } from './renderer/index.js';
@@ -273,6 +274,10 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (options.data.gpuWhereConditions !== undefined) {
         const conditions = this.convertGpuWhereConditions(options.data.gpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
+      }
+
+      if (options.data.filteredPointDisplayMode !== undefined) {
+        this.gpuLayer.setFilteredPointDisplayMode(options.data.filteredPointDisplayMode);
       }
     }
 
@@ -562,6 +567,23 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   getPointSizeScale(): number {
     return this.gpuLayer.getPointSizeScale();
+  }
+
+  /**
+   * フィルターされたポイントの表示モードを設定する
+   * @param mode 'hidden'（非表示）または 'grayed'（灰色表示）
+   */
+  setFilteredPointDisplayMode(mode: FilteredPointDisplayMode): void {
+    this.gpuLayer.setFilteredPointDisplayMode(mode);
+    this.render();
+  }
+
+  /**
+   * 現在のフィルター表示モードを取得する
+   * @returns 現在のフィルター表示モード
+   */
+  getFilteredPointDisplayMode(): FilteredPointDisplayMode {
+    return this.gpuLayer.getFilteredPointDisplayMode();
   }
 
   /**
