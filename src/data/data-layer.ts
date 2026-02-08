@@ -191,8 +191,8 @@ export class DataLayer {
         const baseIndex = i * 4;
         for (let j = 0; j < 4; j++) {
           if (j < columns.length) {
-            const colData = data.columnData.get(`__filter_col_${j}__`);
-            filterData[baseIndex + j] = colData?.get(i) ?? 0;
+            const colData = data.columnData.get(`__filter_col_${j}__`)!;
+            filterData[baseIndex + j] = colData.get(i);
           } else {
             filterData[baseIndex + j] = 0;
           }
@@ -234,7 +234,7 @@ export class DataLayer {
         const countResult = await this.repository!.query({
           toString: () => `SELECT COUNT(*) as cnt FROM parquet_data`,
         });
-        totalCount = Number(countResult?.columnData.get('cnt')?.get(0) ?? 0);
+        totalCount = Number(countResult!.columnData.get('cnt')!.get(0));
       }
 
       if (totalCount === 0) {
@@ -269,14 +269,12 @@ export class DataLayer {
       const flags = new Uint32Array(wordCount);
       flags.fill(0);
 
-      const idxColumn = data.columnData.get('__idx__');
-      if (idxColumn) {
-        for (let i = 0; i < data.rowCount; i++) {
-          const idx = Number(idxColumn.get(i));
-          const wordIndex = Math.floor(idx / 32);
-          const bitIndex = idx % 32;
-          flags[wordIndex] |= 1 << bitIndex;
-        }
+      const idxColumn = data.columnData.get('__idx__')!;
+      for (let i = 0; i < data.rowCount; i++) {
+        const idx = Number(idxColumn.get(i));
+        const wordIndex = Math.floor(idx / 32);
+        const bitIndex = idx % 32;
+        flags[wordIndex] |= 1 << bitIndex;
       }
 
       return { flags, totalCount };
@@ -309,17 +307,10 @@ export class DataLayer {
    * @returns 処理済みデータ
    */
   private processDataToGpuFormat(data: ParquetData): AllPointsData {
-    const xColumn = data.columnData.get('x');
-    const yColumn = data.columnData.get('y');
-    const sizeColumn = data.columnData.get('__size__');
-    const colorColumn = data.columnData.get('__color__');
-
-    if (!xColumn || !yColumn || !sizeColumn || !colorColumn) {
-      return {
-        instanceData: new Float32Array(0),
-        totalCount: 0,
-      };
-    }
+    const xColumn = data.columnData.get('x')!;
+    const yColumn = data.columnData.get('y')!;
+    const sizeColumn = data.columnData.get('__size__')!;
+    const colorColumn = data.columnData.get('__color__')!;
 
     const cachedData = new Array<PointData>(data.rowCount);
 
@@ -522,8 +513,8 @@ export class DataLayer {
     const row: Record<string, any> = {};
     for (let j = 0; j < data.columns.length; j++) {
       const colName = data.columns[j];
-      const column = data.columnData.get(colName);
-      row[colName] = column?.get(rowIndex);
+      const column = data.columnData.get(colName)!;
+      row[colName] = column.get(rowIndex);
     }
     return row;
   }
