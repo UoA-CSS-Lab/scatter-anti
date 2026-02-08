@@ -64,7 +64,6 @@ export class DataLayer {
   /** 全ポイントデータのキャッシュ（ポイント検索用） */
   private allPointsCache: PointData[] = [];
   /** 全ポイント数のキャッシュ（ビジビリティフラグ生成用） */
-  private totalPointCount: number = 0;
 
   /**
    * DataLayerインスタンスを作成する
@@ -142,7 +141,41 @@ export class DataLayer {
         };
       }
 
-      return this.processDataToGpuFormat(data);
+      const xColumn = data.columnData.get('x')!;
+      const yColumn = data.columnData.get('y')!;
+      const sizeColumn = data.columnData.get('__size__')!;
+      const colorColumn = data.columnData.get('__color__')!;
+
+      const cachedData = new Array<PointData>(data.rowCount);
+
+      const buffer = new ArrayBuffer(data.rowCount * 16);
+      const floatView = new Float32Array(buffer);
+      const uint32View = new Uint32Array(buffer);
+
+      for (let i = 0; i < data.rowCount; i++) {
+        const x = xColumn.get(i);
+        const y = yColumn.get(i);
+        const size = sizeColumn.get(i);
+        const baseIndex = i * 4;
+        floatView[baseIndex + 0] = x;
+        floatView[baseIndex + 1] = y;
+        uint32View[baseIndex + 2] = Number(colorColumn.get(i)) >>> 0;
+        floatView[baseIndex + 3] = size;
+
+        cachedData[i] = {
+          rowid: i,
+          x: x,
+          y: y,
+          size: size,
+        };
+      }
+
+      this.allPointsCache = cachedData;
+
+      return {
+        instanceData: floatView,
+        totalCount: data.rowCount,
+      };
     } catch (e) {
       if (this.onError) {
         this.onError(
@@ -228,14 +261,7 @@ export class DataLayer {
     totalCount: number;
   } | null> {
     try {
-      // 全ポイント数を取得（キャッシュがない場合のみ）
-      let totalCount = this.totalPointCount;
-      if (totalCount === 0) {
-        const countResult = await this.repository!.query({
-          toString: () => `SELECT COUNT(*) as cnt FROM parquet_data`,
-        });
-        totalCount = Number(countResult!.columnData.get('cnt')!.get(0));
-      }
+      const totalCount = this.allPointsCache.length;
 
       if (totalCount === 0) {
         return null;
@@ -296,57 +322,9 @@ export class DataLayer {
    * @returns クエリ結果のParquetData
    */
   async executeQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
-    const queryObj = typeof query === 'string' ? { toString: () => query } : query;
-    return this.repository!.query(queryObj);
+    return this.repository!.query(typeof query === 'string' ? { toString: () => query } : query);
   }
 
-  /**
-   * カラム形式のデータをGPU用インスタンスデータフォーマットに変換する
-   * フォーマット: ポイントごとに [x (f32), y (f32), color (u32), size (f32)]
-   * @param data ParquetData形式のデータ
-   * @returns 処理済みデータ
-   */
-  private processDataToGpuFormat(data: ParquetData): AllPointsData {
-    const xColumn = data.columnData.get('x')!;
-    const yColumn = data.columnData.get('y')!;
-    const sizeColumn = data.columnData.get('__size__')!;
-    const colorColumn = data.columnData.get('__color__')!;
-
-    const cachedData = new Array<PointData>(data.rowCount);
-
-    const buffer = new ArrayBuffer(data.rowCount * 16);
-    const floatView = new Float32Array(buffer);
-    const uint32View = new Uint32Array(buffer);
-
-    for (let i = 0; i < data.rowCount; i++) {
-      const x = xColumn.get(i);
-      const y = yColumn.get(i);
-      const size = sizeColumn.get(i);
-      const argbRaw = colorColumn.get(i);
-      const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
-
-      const baseIndex = i * 4;
-      floatView[baseIndex + 0] = x;
-      floatView[baseIndex + 1] = y;
-      uint32View[baseIndex + 2] = argb >>> 0;
-      floatView[baseIndex + 3] = size;
-
-      cachedData[i] = {
-        rowid: i,
-        x: x,
-        y: y,
-        size: size,
-      };
-    }
-
-    this.allPointsCache = cachedData;
-    this.totalPointCount = data.rowCount;
-
-    return {
-      instanceData: floatView,
-      totalCount: data.rowCount,
-    };
-  }
 
   /**
    * 設定オプションを更新する
