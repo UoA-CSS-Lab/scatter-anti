@@ -28,8 +28,6 @@ export interface DataLayerOptions {
  * 現在表示中のポイントデータ（ポイント検索用）
  */
 interface PointData {
-  /** rowid (インデックス) */
-  rowid: number;
   x: number;
   y: number;
   size: number;
@@ -163,7 +161,6 @@ export class DataLayer {
         floatView[baseIndex + 3] = size;
 
         cachedData[i] = {
-          rowid: i,
           x: x,
           y: y,
           size: size,
@@ -282,7 +279,7 @@ export class DataLayer {
 
       // 可視ポイントのrowidを取得
       const data = await this.repository!.query({
-        toString: () => `SELECT rowid AS __idx__ FROM parquet_data ${whereClause} ORDER BY __idx__`,
+        toString: () => `SELECT rowid FROM parquet_data ${whereClause} ORDER BY rowid`,
       });
       if (!data) {
         return null;
@@ -293,7 +290,7 @@ export class DataLayer {
       const flags = new Uint32Array(wordCount);
       flags.fill(0);
 
-      const idxColumn = data.columnData.get('__idx__')!;
+      const idxColumn = data.columnData.get('rowid')!;
       for (let i = 0; i < data.rowCount; i++) {
         const idx = Number(idxColumn.get(i));
         const wordIndex = Math.floor(idx / 32);
@@ -424,7 +421,7 @@ export class DataLayer {
 
       if (distanceSq < nearestDistanceSq && distanceSq <= thresholdWorldSq) {
         nearestDistanceSq = distanceSq;
-        nearestRowid = this.allPointsCache[i].rowid;
+        nearestRowid = i;
       }
     }
 
@@ -432,12 +429,7 @@ export class DataLayer {
       return null;
     }
 
-    const data = await this.repository!.query({
-      toString: () =>
-        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${nearestRowid}`,
-    });
-
-    return this.buildRowFromData(data, 0);
+    return this.findPointById(nearestRowid);
   }
 
   /**
@@ -459,19 +451,6 @@ export class DataLayer {
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${pointId}`,
     });
 
-    return this.buildRowFromData(data, 0);
-  }
-
-  /**
-   * ParquetDataから指定行のデータをレコードとして構築する
-   * @param data ParquetData
-   * @param rowIndex 行インデックス
-   * @returns 行データの配列
-   */
-  private buildRowFromData(
-    data: ParquetData | undefined,
-    rowIndex: number
-  ): Record<string, any> | null {
     if (!data || data.rowCount === 0) {
       return null;
     }
@@ -479,7 +458,7 @@ export class DataLayer {
     for (let j = 0; j < data.columns.length; j++) {
       const colName = data.columns[j];
       const column = data.columnData.get(colName)!;
-      row[colName] = column.get(rowIndex);
+      row[colName] = column.get(0);
     }
     return row;
   }

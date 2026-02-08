@@ -45,9 +45,7 @@ export function PointList() {
   // Check if a point is currently hovered
   const isHovered = (id: number) => {
     if (!state.hoveredPoint) return false;
-    const idIdx = state.hoveredPoint.columns.indexOf('rowid');
-    if (idIdx === -1) return false;
-    return state.hoveredPoint.row[idIdx] === id;
+    return state.hoveredPoint['rowid'] === id;
   };
 
   if (!state.isInitialized) {
