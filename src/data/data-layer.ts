@@ -456,9 +456,10 @@ export class DataLayer {
 
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
+    const thresholdWorldSq = thresholdWorld * thresholdWorld;
 
     let nearestRowid: number | null = null;
-    let nearestDistance = Infinity;
+    let nearestDistanceSq = Infinity;
 
     for (let i = 0; i < this.allPointsCache.length; i++) {
       const pointX = this.allPointsCache[i].x;
@@ -466,10 +467,10 @@ export class DataLayer {
 
       const dx = pointX - worldX;
       const dy = pointY - worldY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      const distanceSq = dx * dx + dy * dy;
 
-      if (distance < nearestDistance && distance <= thresholdWorld) {
-        nearestDistance = distance;
+      if (distanceSq < nearestDistanceSq && distanceSq <= thresholdWorldSq) {
+        nearestDistanceSq = distanceSq;
         nearestRowid = this.allPointsCache[i].rowid;
       }
     }
@@ -482,10 +483,6 @@ export class DataLayer {
       toString: () =>
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${nearestRowid}`,
     });
-
-    if (!data) {
-      return null;
-    }
 
     return this.buildRowFromData(data, 0);
   }
@@ -509,10 +506,6 @@ export class DataLayer {
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${pointId}`,
     });
 
-    if (!data || data.rowCount === 0) {
-      return null;
-    }
-
     return this.buildRowFromData(data, 0);
   }
 
@@ -522,7 +515,10 @@ export class DataLayer {
    * @param rowIndex 行インデックス
    * @returns 行データの配列
    */
-  private buildRowFromData(data: ParquetData, rowIndex: number): Record<string, any> {
+  private buildRowFromData(data: ParquetData | undefined, rowIndex: number): Record<string, any> | null {
+    if (!data || data.rowCount === 0) {
+      return null;
+    }
     const row: Record<string, any> = {};
     for (let j = 0; j < data.columns.length; j++) {
       const colName = data.columns[j];
