@@ -61,6 +61,13 @@ export class DataLayer {
   /** 全ポイントデータのキャッシュ（ポイント検索用、SoA形式） */
   private pointsCache: PointsCache = { xArr: new Float64Array(0), yArr: new Float64Array(0), length: 0 };
 
+  /** WhereConditionから生成されたビジビリティフラグのキャッシュ（WHERE条件なし時は空） */
+  private visibilityFlags = new Uint32Array(0);
+  /** GPUフィルターカラムデータのキャッシュ（4値/ポイント） */
+  private filterColumnData = new Float32Array(0);
+  /** 現在のGPUフィルターレンジ（スライダーで高頻度更新） */
+  private gpuFilterRanges: { columnIndex: number; min: number; max: number }[] = [];
+
   /**
    * DataLayerインスタンスを作成する
    * @param options 設定オプション
@@ -227,6 +234,8 @@ export class DataLayer {
       const columnMapping = new Map<string, number>();
       columns.forEach((col, i) => columnMapping.set(col, i));
 
+      this.filterColumnData = filterData;
+
       return {
         data: filterData,
         columnMapping,
@@ -260,6 +269,7 @@ export class DataLayer {
 
       // WHERE条件がない場合は全ポイント可視
       if (this.whereConditions.length === 0) {
+        this.visibilityFlags = new Uint32Array(0);
         const wordCount = Math.ceil(totalCount / 32);
         const flags = new Uint32Array(wordCount);
         flags.fill(0xffffffff);
@@ -291,6 +301,8 @@ export class DataLayer {
         const idx = Number(idxArray[i]);
         flags[idx >> 5] |= 1 << (idx & 31);
       }
+
+      this.visibilityFlags = this.whereConditions.length === 0 ? new Uint32Array(0) : flags;
 
       return { flags, totalCount };
     } catch (e) {
@@ -368,6 +380,14 @@ export class DataLayer {
   }
 
   /**
+   * GPUフィルターレンジを更新する（findNearestPointで使用）
+   * スライダー変更時にO(1)で呼び出される
+   */
+  setGpuFilterRanges(ranges: { columnIndex: number; min: number; max: number }[]): void {
+    this.gpuFilterRanges = ranges;
+  }
+
+  /**
    * 画面座標に最も近いポイントを検索する
    * @param screenX マウスのスクリーンX座標
    * @param screenY マウスのスクリーンY座標
@@ -409,7 +429,27 @@ export class DataLayer {
     let nearestRowid: number | null = null;
     let nearestDistanceSq = Infinity;
 
+    const checkVisibility = this.visibilityFlags.length > 0;
+    const checkGpuFilter = this.filterColumnData.length > 0 && this.gpuFilterRanges.length > 0;
+
     for (let i = 0; i < length; i++) {
+      if (checkVisibility) {
+        if ((this.visibilityFlags[i >> 5] & (1 << (i & 31))) === 0) continue;
+      }
+
+      if (checkGpuFilter) {
+        const base = i * 4;
+        let skip = false;
+        for (const r of this.gpuFilterRanges) {
+          const v = this.filterColumnData[base + r.columnIndex];
+          if (v < r.min || v > r.max) {
+            skip = true;
+            break;
+          }
+        }
+        if (skip) continue;
+      }
+
       const dx = xArr[i] - worldX;
       const dy = yArr[i] - worldY;
       const distanceSq = dx * dx + dy * dy;

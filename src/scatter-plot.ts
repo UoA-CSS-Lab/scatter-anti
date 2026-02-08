@@ -271,6 +271,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (options.data.gpuWhereConditions !== undefined) {
         const conditions = this.convertGpuWhereConditions(options.data.gpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
+        this.dataLayer.setGpuFilterRanges(conditions);
       }
 
       if (options.data.filteredPointDisplayMode !== undefined) {
