@@ -197,7 +197,6 @@ export class DataLayer {
    */
   async loadGpuFilterColumns(): Promise<{
     data: Float32Array;
-    columnCount: number;
     columnMapping: Map<string, number>;
   } | null> {
     if (this.gpuFilterColumns.length === 0) {
@@ -211,7 +210,9 @@ export class DataLayer {
         .map((col, i) => `CAST(${col} AS DOUBLE) AS __filter_col_${i}__`)
         .join(', ');
 
-      const data = await this.repository!.query({ toString: () => `SELECT ${columnSelects} FROM parquet_data` });
+      const data = await this.repository!.query({
+        toString: () => `SELECT ${columnSelects} FROM parquet_data`,
+      });
       if (!data || data.rowCount === 0) {
         return null;
       }
@@ -235,7 +236,6 @@ export class DataLayer {
 
       return {
         data: filterData,
-        columnCount: columns.length,
         columnMapping,
       };
     } catch (e) {
@@ -281,7 +281,9 @@ export class DataLayer {
       const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
       // 可視ポイントのrowidを取得
-      const data = await this.repository!.query({ toString: () => `SELECT rowid AS __idx__ FROM parquet_data ${whereClause} ORDER BY __idx__` });
+      const data = await this.repository!.query({
+        toString: () => `SELECT rowid AS __idx__ FROM parquet_data ${whereClause} ORDER BY __idx__`,
+      });
       if (!data) {
         return null;
       }
@@ -327,8 +329,6 @@ export class DataLayer {
    * @returns 変更の種類を示すオブジェクト
    */
   updateOptions(options: Partial<DataLayerOptions>): {
-    needsFullReload: boolean;
-    needsVisibilityUpdate: boolean;
     gpuFilterColumnsChanged: boolean;
   } {
     let needsFullReload = false;
@@ -373,7 +373,7 @@ export class DataLayer {
       this.onVisibilityChanged();
     }
 
-    return { needsFullReload, needsVisibilityUpdate, gpuFilterColumnsChanged };
+    return { gpuFilterColumnsChanged };
   }
 
   /**
@@ -468,7 +468,10 @@ export class DataLayer {
    * @param rowIndex 行インデックス
    * @returns 行データの配列
    */
-  private buildRowFromData(data: ParquetData | undefined, rowIndex: number): Record<string, any> | null {
+  private buildRowFromData(
+    data: ParquetData | undefined,
+    rowIndex: number
+  ): Record<string, any> | null {
     if (!data || data.rowCount === 0) {
       return null;
     }

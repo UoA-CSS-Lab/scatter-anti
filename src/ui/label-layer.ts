@@ -98,7 +98,6 @@ export class LabelLayer {
     this.canvas = options.canvas;
     this.minLabelDistance = options.minLabelDistance ?? this.minLabelDistance;
     this.labelFontSize = options.labelFontSize ?? this.labelFontSize;
-    this.labels = [];
     this.filterLambda = options.filterLambda;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;

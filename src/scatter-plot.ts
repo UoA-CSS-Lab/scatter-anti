@@ -80,7 +80,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
       const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
       if (gpuFilterData) {
-        this.gpuLayer.uploadFilterColumns(gpuFilterData.data, gpuFilterData.columnCount);
+        this.gpuLayer.uploadFilterColumns(gpuFilterData.data);
         this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
       }
 
@@ -92,7 +92,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
           this.gpuLayer.uploadVisibilityFlags(visibilityData.flags, true);
         }
       }
-
     } catch (e) {
       const error = this.categorizeInitError(e);
       this.emitError(error);
@@ -262,7 +261,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (result.gpuFilterColumnsChanged) {
         const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
         if (gpuFilterData) {
-          this.gpuLayer.uploadFilterColumns(gpuFilterData.data, gpuFilterData.columnCount);
+          this.gpuLayer.uploadFilterColumns(gpuFilterData.data);
           this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
         } else {
           this.gpuFilterColumnMapping.clear();

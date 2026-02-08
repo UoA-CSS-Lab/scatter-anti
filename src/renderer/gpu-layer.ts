@@ -799,7 +799,7 @@ export class GpuLayer {
    * @param data フィルターカラムデータ（各ポイントに4カラム分のf32、totalPoints * 4 floats）
    * @param columnCount 有効なカラム数（0-4）
    */
-  uploadFilterColumns(data: Float32Array, columnCount: number): void {
+  uploadFilterColumns(data: Float32Array): void {
     if (!this.context.device) return;
 
     const requiredSize = this.totalPointCount * 16;
