@@ -93,7 +93,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         }
       }
 
-      this.labelLayer.initialize();
     } catch (e) {
       const error = this.categorizeInitError(e);
       this.emitError(error);
