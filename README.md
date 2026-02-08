@@ -69,7 +69,7 @@ const plot = new ScatterPlot({
     gpuWhereConditions?: GpuWhereCondition[], // GPUフィルター条件
   },
   gpu?: {
-    backgroundColor?: ColorRGBA,  // 背景色
+    backgroundColor?: Color4f,  // 背景色
     pointAlpha?: number,          // グローバル透明度（0.0-1.0、デフォルト: 1.0）
     pointSizeScale?: number,      // グローバルサイズスケール（デフォルト: 1.0）
   },

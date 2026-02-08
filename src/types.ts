@@ -15,7 +15,7 @@ export interface LabelIdentifier {
 /** ラベルがホバーされた時に発火するコールバック */
 export type LabelHoverCallback = (label: Label | null) => void;
 
-export interface ColorRGBA {
+export interface Color4f {
   r: number; // 0-1
   g: number; // 0-1
   b: number; // 0-1
@@ -120,7 +120,7 @@ export interface DataOptions {
 
 export interface GpuOptions {
   /** 背景色（デフォルト: 透明な黒） */
-  backgroundColor?: ColorRGBA;
+  backgroundColor?: Color4f;
   /** グローバル透明度 (0.0-1.0, デフォルト: 1.0) */
   pointAlpha?: number;
   /** グローバルサイズスケール (デフォルト: 1.0) */

@@ -4,7 +4,7 @@
 
 export { ScatterPlot } from './scatter-plot.js';
 export type {
-  ColorRGBA,
+  Color4f,
   ScatterPlotOptions,
   Label,
   WhereCondition,

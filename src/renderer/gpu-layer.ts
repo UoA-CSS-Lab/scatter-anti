@@ -1,6 +1,6 @@
 import { WebGPUContext } from './webgpu-context.js';
 import { scatterVertexShader, filterComputeShader, updateIndirectShader } from './shaders.js';
-import type { ColorRGBA, FilteredPointDisplayMode } from '../types.js';
+import type { Color4f, FilteredPointDisplayMode } from '../types.js';
 
 /**
  * GPU用に処理されたポイントデータ
@@ -19,7 +19,7 @@ export interface GpuLayerOptions {
   /** 描画対象のHTMLCanvasElement */
   canvas: HTMLCanvasElement;
   /** 背景色（デフォルト: 透明な黒） */
-  backgroundColor?: ColorRGBA;
+  backgroundColor?: Color4f;
   /** 表示可能なポイントの最大数（デフォルト: 5000000） */
   visiblePointLimit?: number;
 }
@@ -102,7 +102,7 @@ export class GpuLayer {
   /** 全ポイント数 */
   private totalPointCount: number = 0;
   /** 背景色 */
-  private backgroundColor: ColorRGBA = { r: 0, g: 0, b: 0, a: 0 };
+  private backgroundColor: Color4f = { r: 0, g: 0, b: 0, a: 0 };
   /** 表示可能なポイントの最大数 */
   private visiblePointLimit: number = 5000000;
   /** フィルタリング結果が有効かどうか */

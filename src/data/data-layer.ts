@@ -1,7 +1,8 @@
 import type { ParquetData, ParquetReader } from './repository.js';
 import { createParquetReader } from './repository.js';
-import type { WhereCondition, ScatterPlotError } from '../types.js';
+import type { WhereCondition, ScatterPlotError, Color4f } from '../types.js';
 import { createError } from '../errors.js';
+import { getPointColor } from '../util/color.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 
 /** DataLayer未初期化エラーメッセージ */
@@ -431,24 +432,8 @@ export class DataLayer {
     return { needsFullReload, needsVisibilityUpdate, gpuFilterColumnsChanged };
   }
 
-  /**
-   * 行データからポイントの色を取得する
-   * @param row 行データ
-
-   * @returns RGBAカラーオブジェクト
-   */
-  getPointColor(row: Record<string, any>): { r: number; g: number; b: number; a: number } {
-    const argbRaw = row['__color__'];
-    if (argbRaw == null) {
-      return { r: 0.3, g: 0.3, b: 0.8, a: 0.3 };
-    }
-    const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
-    return {
-      a: ((argb >>> 24) & 0xff) / 255,
-      r: ((argb >>> 16) & 0xff) / 255,
-      g: ((argb >>> 8) & 0xff) / 255,
-      b: (argb & 0xff) / 255,
-    };
+  getPointColor(row: Record<string, any>): Color4f {
+    return getPointColor(row);
   }
 
   /**
