@@ -5,9 +5,6 @@ import { createError } from '../errors.js';
 import { getPointColor, getPointSize } from '../util/point.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 
-/** DataLayer未初期化エラーメッセージ */
-const ERROR_NOT_INITIALIZED = 'DataLayer not initialized. Call initialize() first.';
-
 /**
  * DataLayerの設定オプション
  */
@@ -99,10 +96,7 @@ export class DataLayer {
    * @param geojson GeoJSON FeatureCollectionオブジェクト
    */
   async loadLabelData(geojson: any): Promise<void> {
-    if (!this.repository) {
-      throw new Error(ERROR_NOT_INITIALIZED);
-    }
-    await this.repository.loadGeoJson(geojson);
+    await this.repository!.loadGeoJson(geojson);
   }
 
   /**
@@ -136,17 +130,10 @@ export class DataLayer {
    * @returns 処理済みの全データ
    */
   async loadAllPoints(): Promise<AllPointsData> {
-    if (!this.repository) {
-      return {
-        instanceData: new Float32Array(0),
-        totalCount: 0,
-      };
-    }
-
     try {
       const sql = `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data ORDER BY rowid`;
 
-      const data = await this.repository.query({ toString: () => sql });
+      const data = await this.repository!.query({ toString: () => sql });
 
       if (!data) {
         return {
@@ -180,7 +167,7 @@ export class DataLayer {
     columnCount: number;
     columnMapping: Map<string, number>;
   } | null> {
-    if (this.gpuFilterColumns.length === 0 || !this.repository) {
+    if (this.gpuFilterColumns.length === 0) {
       return null;
     }
 
@@ -192,7 +179,7 @@ export class DataLayer {
         .join(', ');
 
       const sql = `SELECT ${columnSelects} FROM parquet_data`;
-      const data = await this.repository.query({ toString: () => sql });
+      const data = await this.repository!.query({ toString: () => sql });
 
       if (!data || data.rowCount === 0) {
         return null;
@@ -240,15 +227,11 @@ export class DataLayer {
     flags: Uint32Array;
     totalCount: number;
   } | null> {
-    if (!this.repository) {
-      return null;
-    }
-
     try {
       // 全ポイント数を取得（キャッシュがない場合のみ）
       let totalCount = this.totalPointCount;
       if (totalCount === 0) {
-        const countResult = await this.repository.query({
+        const countResult = await this.repository!.query({
           toString: () => `SELECT COUNT(*) as cnt FROM parquet_data`,
         });
         totalCount = Number(countResult?.columnData.get('cnt')?.get(0) ?? 0);
@@ -275,7 +258,7 @@ export class DataLayer {
 
       // 可視ポイントのrowidを取得
       const sql = `SELECT rowid AS __idx__ FROM parquet_data ${whereClause} ORDER BY __idx__`;
-      const data = await this.repository.query({ toString: () => sql });
+      const data = await this.repository!.query({ toString: () => sql });
 
       if (!data) {
         return null;
@@ -315,11 +298,8 @@ export class DataLayer {
    * @returns クエリ結果のParquetData
    */
   async executeQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
-    if (!this.repository) {
-      return undefined;
-    }
     const queryObj = typeof query === 'string' ? { toString: () => query } : query;
-    return this.repository.query(queryObj);
+    return this.repository!.query(queryObj);
   }
 
   /**
@@ -464,7 +444,7 @@ export class DataLayer {
     aspectRatio: number,
     thresholdPixels: number = 10
   ): Promise<Record<string, any> | null> {
-    if (this.allPointsCache.length == 0 || this.repository == null) {
+    if (this.allPointsCache.length == 0) {
       return null;
     }
 
@@ -498,7 +478,7 @@ export class DataLayer {
       return null;
     }
 
-    const data = await this.repository.query({
+    const data = await this.repository!.query({
       toString: () =>
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${nearestRowid}`,
     });
@@ -524,11 +504,7 @@ export class DataLayer {
    * @returns 見つかった場合はポイントデータ、そうでない場合はnull
    */
   async findPointById(pointId: number): Promise<Record<string, any> | null> {
-    if (!this.repository) {
-      return null;
-    }
-
-    const data = await this.repository.query({
+    const data = await this.repository!.query({
       toString: () =>
         `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${pointId}`,
     });
