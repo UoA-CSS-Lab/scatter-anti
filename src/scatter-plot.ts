@@ -60,7 +60,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       labelFontSize: options.labels?.fontSize,
       filterLambda: options.labels?.filterLambda,
       onLabelClick: options.labels?.onClick,
-      onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
+      onPointHover: options.interaction?.onPointHover,
       onLabelHover: options.interaction?.onLabelHover,
       hoverOutlineOptions: options.labels?.hoverOutlineOptions,
       dataLayer: this.dataLayer,
@@ -302,7 +302,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
     if (options.interaction !== undefined) {
       this.labelLayer.updateOptions({
-        onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
+        onPointHover: options.interaction?.onPointHover,
         onLabelHover: options.interaction.onLabelHover,
       });
     }
@@ -412,20 +412,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   private syncLabelViewTransform(): void {
     const pan = this.gpuLayer.getPan();
     this.labelLayer.updateViewTransform(this.gpuLayer.getZoom(), pan.x, pan.y);
-  }
-
-  /**
-   * ラベルレイヤーからのポイントホバーイベントを処理する
-   * @param data ホバー中のポイントデータ（またはnull）
-   * @param userCallback ユーザー定義のコールバック
-   */
-  private handlePointHover(
-    data: Record<string, any> | null,
-    userCallback?: any
-  ): void {
-    if (userCallback) {
-      userCallback(data);
-    }
   }
 
   /**

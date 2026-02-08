@@ -7,6 +7,7 @@ import type {
   LabelHoverCallback,
 } from '../types.js';
 import type { DataLayer } from '../data/data-layer.js';
+import { getPointColor, getPointSize } from '../util/point.js';
 
 /**
  * ラベルレイヤーの初期化オプション
@@ -302,7 +303,7 @@ export class LabelLayer {
 
     const { x: screenX, y: screenY } = this.worldToScreenCoords(pointX, pointY);
 
-    const baseSize = this.dataLayer.getPointSize(this.hoveredPoint);
+    const baseSize = getPointSize(this.hoveredPoint);
     const zoomScaledSize = Math.max(
       baseSize * Math.pow(this.zoom, 0.3) + (this.hoverOutlineOptions.outlinedPointAddition ?? 3),
       this.hoverOutlineOptions.minimumHoverSize ?? 10
@@ -313,7 +314,7 @@ export class LabelLayer {
     this.labelContext.beginPath();
     this.labelContext.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
 
-    const color = this.dataLayer.getPointColor(this.hoveredPoint);
+    const color = getPointColor(this.hoveredPoint);
     this.labelContext.fillStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${Math.round(color.a * 255)})`;
     this.labelContext.fill();
 

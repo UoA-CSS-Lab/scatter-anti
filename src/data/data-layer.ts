@@ -1,8 +1,7 @@
 import type { ParquetData, ParquetReader } from './repository.js';
 import { createParquetReader } from './repository.js';
-import type { WhereCondition, ScatterPlotError, Color4f } from '../types.js';
+import type { WhereCondition, ScatterPlotError } from '../types.js';
 import { createError } from '../errors.js';
-import { getPointColor, getPointSize } from '../util/point.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 
 /**
@@ -63,7 +62,6 @@ export class DataLayer {
 
   /** 全ポイントデータのキャッシュ（ポイント検索用） */
   private allPointsCache: PointData[] = [];
-  /** 全ポイント数のキャッシュ（ビジビリティフラグ生成用） */
 
   /**
    * DataLayerインスタンスを作成する
@@ -104,21 +102,23 @@ export class DataLayer {
    * @returns SQL WHERE句の文字列
    */
   private buildWhereClauseString(condition: WhereCondition): string {
-    if (condition.type === 'numeric') {
-      return `${condition.column} ${condition.operator} ${condition.value}`;
-    } else if (condition.type === 'raw') {
-      return condition.sql;
-    } else {
-      const escapedValue = condition.value.replace(/'/g, "''");
-      switch (condition.operator) {
-        case 'equals':
-          return `${condition.column} = '${escapedValue}'`;
-        case 'contains':
-          return `${condition.column} LIKE '%${escapedValue}%'`;
-        case 'startsWith':
-          return `${condition.column} LIKE '${escapedValue}%'`;
-        case 'endsWith':
-          return `${condition.column} LIKE '%${escapedValue}'`;
+    switch (condition.type) {
+      case 'numeric':
+        return `${condition.column} ${condition.operator} ${condition.value}`;
+      case 'raw':
+        return condition.sql;
+      case 'string': {
+        const escapedValue = condition.value.replace(/'/g, "''");
+        switch (condition.operator) {
+          case 'equals':
+            return `${condition.column} = '${escapedValue}'`;
+          case 'contains':
+            return `${condition.column} LIKE '%${escapedValue}%'`;
+          case 'startsWith':
+            return `${condition.column} LIKE '${escapedValue}%'`;
+          case 'endsWith':
+            return `${condition.column} LIKE '%${escapedValue}'`;
+        }
       }
     }
   }
@@ -130,10 +130,10 @@ export class DataLayer {
    */
   async loadAllPoints(): Promise<AllPointsData> {
     try {
-      const sql = `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data ORDER BY rowid`;
-
-      const data = await this.repository!.query({ toString: () => sql });
-
+      const data = await this.repository!.query({
+        toString: () =>
+          `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data ORDER BY rowid`,
+      });
       if (!data) {
         return {
           instanceData: new Float32Array(0),
@@ -211,9 +211,7 @@ export class DataLayer {
         .map((col, i) => `CAST(${col} AS DOUBLE) AS __filter_col_${i}__`)
         .join(', ');
 
-      const sql = `SELECT ${columnSelects} FROM parquet_data`;
-      const data = await this.repository!.query({ toString: () => sql });
-
+      const data = await this.repository!.query({ toString: () => `SELECT ${columnSelects} FROM parquet_data` });
       if (!data || data.rowCount === 0) {
         return null;
       }
@@ -283,9 +281,7 @@ export class DataLayer {
       const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
       // 可視ポイントのrowidを取得
-      const sql = `SELECT rowid AS __idx__ FROM parquet_data ${whereClause} ORDER BY __idx__`;
-      const data = await this.repository!.query({ toString: () => sql });
-
+      const data = await this.repository!.query({ toString: () => `SELECT rowid AS __idx__ FROM parquet_data ${whereClause} ORDER BY __idx__` });
       if (!data) {
         return null;
       }
@@ -324,7 +320,6 @@ export class DataLayer {
   async executeQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
     return this.repository!.query(typeof query === 'string' ? { toString: () => query } : query);
   }
-
 
   /**
    * 設定オプションを更新する
@@ -381,14 +376,6 @@ export class DataLayer {
     return { needsFullReload, needsVisibilityUpdate, gpuFilterColumnsChanged };
   }
 
-  getPointColor(row: Record<string, any>): Color4f {
-    return getPointColor(row);
-  }
-
-  getPointSize(row: Record<string, any>): number {
-    return getPointSize(row);
-  }
-
   /**
    * 画面座標に最も近いポイントを検索する
    * @param screenX マウスのスクリーンX座標
@@ -431,11 +418,8 @@ export class DataLayer {
     let nearestDistanceSq = Infinity;
 
     for (let i = 0; i < this.allPointsCache.length; i++) {
-      const pointX = this.allPointsCache[i].x;
-      const pointY = this.allPointsCache[i].y;
-
-      const dx = pointX - worldX;
-      const dy = pointY - worldY;
+      const dx = this.allPointsCache[i].x - worldX;
+      const dy = this.allPointsCache[i].y - worldY;
       const distanceSq = dx * dx + dy * dy;
 
       if (distanceSq < nearestDistanceSq && distanceSq <= thresholdWorldSq) {

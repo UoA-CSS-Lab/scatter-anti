@@ -82,8 +82,6 @@ export class GpuLayer {
   private gpuFilterConditions: { columnIndex: number; min: number; max: number }[] = [];
   /** WHERE条件フィルタが有効かどうか */
   private whereFilterEnabled: boolean = false;
-  /** GPUフィルターカラム数 */
-  private gpuFilterColumnCount: number = 0;
 
   /** レンダリング用バインドグループ */
   private renderBindGroup: GPUBindGroup | null = null;
@@ -804,7 +802,6 @@ export class GpuLayer {
   uploadFilterColumns(data: Float32Array, columnCount: number): void {
     if (!this.context.device) return;
 
-    this.gpuFilterColumnCount = Math.min(4, columnCount);
     const requiredSize = this.totalPointCount * 16;
 
     if (!this.filterColumnsBuffer || data.byteLength > requiredSize) {
@@ -832,15 +829,6 @@ export class GpuLayer {
    */
   setGpuFilterConditions(conditions: { columnIndex: number; min: number; max: number }[]): void {
     this.gpuFilterConditions = conditions;
-    this.filterResultValid = false;
-    this.updateUniforms();
-  }
-
-  /**
-   * GPUフィルター条件をクリアする
-   */
-  clearGpuFilterConditions(): void {
-    this.gpuFilterConditions = [];
     this.filterResultValid = false;
     this.updateUniforms();
   }
@@ -923,9 +911,6 @@ export class GpuLayer {
     return this.pointSizeScale;
   }
 
-  /**
-   * リソースを破棄する
-   */
   /**
    * フィルターされたポイントの表示モードを設定する
    */
