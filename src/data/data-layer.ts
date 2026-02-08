@@ -25,12 +25,12 @@ export interface DataLayerOptions {
 }
 
 /**
- * 現在表示中のポイントデータ（ポイント検索用）
+ * 全ポイントデータのキャッシュ（SoA形式）
  */
-interface PointData {
-  x: number;
-  y: number;
-  size: number;
+interface PointsCache {
+  xArr: Float64Array | Float32Array;
+  yArr: Float64Array | Float32Array;
+  length: number;
 }
 
 /**
@@ -58,8 +58,8 @@ export class DataLayer {
   /** WHERE条件変更時のビジビリティ更新コールバック */
   private onVisibilityChanged?: () => void;
 
-  /** 全ポイントデータのキャッシュ（ポイント検索用） */
-  private allPointsCache: PointData[] = [];
+  /** 全ポイントデータのキャッシュ（ポイント検索用、SoA形式） */
+  private pointsCache: PointsCache = { xArr: new Float64Array(0), yArr: new Float64Array(0), length: 0 };
 
   /**
    * DataLayerインスタンスを作成する
@@ -144,30 +144,26 @@ export class DataLayer {
       const sizeColumn = data.columnData.get('__size__')!;
       const colorColumn = data.columnData.get('__color__')!;
 
-      const cachedData = new Array<PointData>(data.rowCount);
-
       const buffer = new ArrayBuffer(data.rowCount * 16);
       const floatView = new Float32Array(buffer);
       const uint32View = new Uint32Array(buffer);
 
-      for (let i = 0; i < data.rowCount; i++) {
-        const x = xColumn.get(i);
-        const y = yColumn.get(i);
-        const size = sizeColumn.get(i);
-        const baseIndex = i * 4;
-        floatView[baseIndex + 0] = x;
-        floatView[baseIndex + 1] = y;
-        uint32View[baseIndex + 2] = Number(colorColumn.get(i)) >>> 0;
-        floatView[baseIndex + 3] = size;
+      const xArr = xColumn.toArray();
+      const yArr = yColumn.toArray();
+      const sizeArr = sizeColumn.toArray();
+      const colorArr = colorColumn.toArray();
 
-        cachedData[i] = {
-          x: x,
-          y: y,
-          size: size,
-        };
+      const rowCount = data.rowCount;
+
+      for (let i = 0; i < rowCount; i++) {
+        const base = i * 4;
+        floatView[base] = xArr[i];
+        floatView[base + 1] = yArr[i];
+        uint32View[base + 2] = colorArr[i];
+        floatView[base + 3] = sizeArr[i];
       }
 
-      this.allPointsCache = cachedData;
+      this.pointsCache = { xArr, yArr, length: rowCount };
 
       return {
         instanceData: floatView,
@@ -256,7 +252,7 @@ export class DataLayer {
     totalCount: number;
   } | null> {
     try {
-      const totalCount = this.allPointsCache.length;
+      const totalCount = this.pointsCache.length;
 
       if (totalCount === 0) {
         return null;
@@ -290,12 +286,10 @@ export class DataLayer {
       const flags = new Uint32Array(wordCount);
       flags.fill(0);
 
-      const idxColumn = data.columnData.get('rowid')!;
-      for (let i = 0; i < data.rowCount; i++) {
-        const idx = Number(idxColumn.get(i));
-        const wordIndex = Math.floor(idx / 32);
-        const bitIndex = idx % 32;
-        flags[wordIndex] |= 1 << bitIndex;
+      const idxArray = data.columnData.get('rowid')!.toArray();
+      for (let i = 0; i < idxArray.length; i++) {
+        const idx = Number(idxArray[i]);
+        flags[idx >> 5] |= 1 << (idx & 31);
       }
 
       return { flags, totalCount };
@@ -397,7 +391,8 @@ export class DataLayer {
     aspectRatio: number,
     thresholdPixels: number = 10
   ): Promise<Record<string, any> | null> {
-    if (this.allPointsCache.length == 0) {
+    const { xArr, yArr, length } = this.pointsCache;
+    if (length === 0) {
       return null;
     }
 
@@ -414,9 +409,9 @@ export class DataLayer {
     let nearestRowid: number | null = null;
     let nearestDistanceSq = Infinity;
 
-    for (let i = 0; i < this.allPointsCache.length; i++) {
-      const dx = this.allPointsCache[i].x - worldX;
-      const dy = this.allPointsCache[i].y - worldY;
+    for (let i = 0; i < length; i++) {
+      const dx = xArr[i] - worldX;
+      const dy = yArr[i] - worldY;
       const distanceSq = dx * dx + dy * dy;
 
       if (distanceSq < nearestDistanceSq && distanceSq <= thresholdWorldSq) {
