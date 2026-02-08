@@ -3,7 +3,6 @@ import type {
   ScatterPlotOptions,
   ScatterPlotEventMap,
   ScatterPlotError,
-  PointId,
   LabelIdentifier,
   GpuWhereCondition,
   FilteredPointDisplayMode,
@@ -421,7 +420,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param userCallback ユーザー定義のコールバック
    */
   private handlePointHover(
-    data: { row: any[]; columns: string[] } | null,
+    data: Record<string, any> | null,
     userCallback?: any
   ): void {
     if (userCallback) {
@@ -465,10 +464,10 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
   /**
    * IDを指定してプログラム的にポイントをホバー状態にする
-   * @param pointId ホバーするポイントのidColumn値
+   * @param pointId ホバーするポイントのrowid
    * @returns ポイントが見つかりホバーされた場合はtrue、そうでない場合はfalse
    */
-  async setPointHover(pointId: PointId): Promise<boolean> {
+  async setPointHover(pointId: number): Promise<boolean> {
     if (!this.dataLayer.isInitialized()) {
       return false;
     }
@@ -493,7 +492,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * 現在ホバー中のポイントデータを取得する
    * @returns ホバー中の場合はポイントデータ、そうでない場合はnull
    */
-  getHoveredPoint(): { row: any[]; columns: string[] } | null {
+  getHoveredPoint(): Record<string, any> | null {
     return this.labelLayer.getHoveredPoint();
   }
 

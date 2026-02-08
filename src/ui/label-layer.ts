@@ -83,7 +83,7 @@ export class LabelLayer {
   /** ラベルホバー時のコールバック */
   private onLabelHover?: LabelHoverCallback;
   /** 現在ホバー中のポイント */
-  private hoveredPoint: { row: any[]; columns: string[] } | null = null;
+  private hoveredPoint: Record<string, any> | null = null;
   /** ホバーアウトラインのオプション */
   private hoverOutlineOptions: HoverOutlineOptions;
   /** データレイヤー参照 */
@@ -293,19 +293,16 @@ export class LabelLayer {
       return;
     }
 
-    const xIndex = this.hoveredPoint.columns.indexOf('x');
-    const yIndex = this.hoveredPoint.columns.indexOf('y');
+    const pointX = this.hoveredPoint['x'];
+    const pointY = this.hoveredPoint['y'];
 
-    if (xIndex === -1 || yIndex === -1) {
+    if (pointX == null || pointY == null) {
       return;
     }
 
-    const { x: screenX, y: screenY } = this.worldToScreenCoords(
-      this.hoveredPoint.row[xIndex],
-      this.hoveredPoint.row[yIndex]
-    );
+    const { x: screenX, y: screenY } = this.worldToScreenCoords(pointX, pointY);
 
-    const baseSize = this.dataLayer.getPointSize(this.hoveredPoint.row, this.hoveredPoint.columns);
+    const baseSize = this.dataLayer.getPointSize(this.hoveredPoint);
     const zoomScaledSize = Math.max(
       baseSize * Math.pow(this.zoom, 0.3) + (this.hoverOutlineOptions.outlinedPointAddition ?? 3),
       this.hoverOutlineOptions.minimumHoverSize ?? 10
@@ -316,7 +313,7 @@ export class LabelLayer {
     this.labelContext.beginPath();
     this.labelContext.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
 
-    const color = this.dataLayer.getPointColor(this.hoveredPoint.row, this.hoveredPoint.columns);
+    const color = this.dataLayer.getPointColor(this.hoveredPoint);
     this.labelContext.fillStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${Math.round(color.a * 255)})`;
     this.labelContext.fill();
 
@@ -366,7 +363,7 @@ export class LabelLayer {
 
       const labelAtPosition = this.getLabelAtPosition(x, y);
 
-      let pointHit: { row: any[]; columns: string[] } | null = null;
+      let pointHit: Record<string, any> | null = null;
       if (!labelAtPosition && this.dataLayer) {
         const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
         pointHit = await this.dataLayer.findNearestPoint(
@@ -556,7 +553,7 @@ export class LabelLayer {
    * プログラム的にホバー中のポイントを設定する
    * @param data ホバーするポイントデータ、またはnullでクリア
    */
-  setHoveredPoint(data: { row: any[]; columns: string[] } | null): void {
+  setHoveredPoint(data: Record<string, any> | null): void {
     if (data === this.hoveredPoint) {
       return;
     }
@@ -607,7 +604,7 @@ export class LabelLayer {
    * 現在ホバー中のポイントを取得する
    * @returns ホバー中のポイント、またはnull
    */
-  getHoveredPoint(): { row: any[]; columns: string[] } | null {
+  getHoveredPoint(): Record<string, any> | null {
     return this.hoveredPoint;
   }
 

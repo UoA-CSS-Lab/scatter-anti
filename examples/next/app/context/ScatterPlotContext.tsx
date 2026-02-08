@@ -9,13 +9,13 @@ import {
   useEffect,
   type ReactNode,
 } from 'react';
-import type { ScatterPlot, WhereCondition, Label, PointId, LabelIdentifier, GpuWhereCondition } from '@uoa-css-lab/duckscatter';
+import type { ScatterPlot, WhereCondition, Label, LabelIdentifier, GpuWhereCondition } from '@uoa-css-lab/duckscatter';
 
 interface ScatterPlotState {
   isInitialized: boolean;
   isLoading: boolean;
   error: string | null;
-  hoveredPoint: { row: unknown[]; columns: string[] } | null;
+  hoveredPoint: Record<string, unknown> | null;
   hoveredLabel: Label | null;
   pointCount: number | null;
   /** created_atカラムの範囲（min/max） */
@@ -46,7 +46,7 @@ interface ScatterPlotContextValue {
   /** フィルター除外ポイントの表示モードを設定 */
   updateFilteredPointDisplayMode: (mode: 'hidden' | 'grayed') => void;
   // Hover control
-  setPointHover: (pointId: PointId) => Promise<boolean>;
+  setPointHover: (pointId: number) => Promise<boolean>;
   setLabelHover: (identifier: LabelIdentifier) => boolean;
   clearAllHover: () => void;
   // List data
@@ -248,7 +248,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
   );
 
   // Hover control methods
-  const setPointHover = useCallback(async (pointId: PointId): Promise<boolean> => {
+  const setPointHover = useCallback(async (pointId: number): Promise<boolean> => {
     if (!plotRef.current) return false;
     return await plotRef.current.setPointHover(pointId);
   }, []);

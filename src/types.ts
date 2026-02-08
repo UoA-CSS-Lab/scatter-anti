@@ -2,10 +2,7 @@
  * duckscatterライブラリの型定義
  */
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
-export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
-
-/** ポイント識別子の型（rowid） */
-export type PointId = number;
+export type PointHoverCallback = (data: Record<string, any> | null) => void;
 
 /** プログラムによるホバー制御用のラベル識別子 */
 export interface LabelIdentifier {

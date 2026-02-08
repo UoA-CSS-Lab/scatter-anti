@@ -23,7 +23,6 @@ export type {
   ScatterPlotError,
   ScatterPlotEventMap,
   // Hover control types
-  PointId,
   LabelIdentifier,
   LabelHoverCallback,
 } from './types.js';

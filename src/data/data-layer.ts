@@ -1,6 +1,6 @@
 import type { ParquetData, ParquetReader } from './repository.js';
 import { createParquetReader } from './repository.js';
-import type { WhereCondition, ScatterPlotError, PointId } from '../types.js';
+import type { WhereCondition, ScatterPlotError } from '../types.js';
 import { createError } from '../errors.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 
@@ -434,15 +434,14 @@ export class DataLayer {
   /**
    * 行データからポイントの色を取得する
    * @param row 行データ
-   * @param columns カラム名の配列
+
    * @returns RGBAカラーオブジェクト
    */
-  getPointColor(row: any[], columns: string[]): { r: number; g: number; b: number; a: number } {
-    const colorIdx = columns.indexOf('__color__');
-    if (colorIdx === -1) {
+  getPointColor(row: Record<string, any>): { r: number; g: number; b: number; a: number } {
+    const argbRaw = row['__color__'];
+    if (argbRaw == null) {
       return { r: 0.3, g: 0.3, b: 0.8, a: 0.3 };
     }
-    const argbRaw = row[colorIdx];
     const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
     return {
       a: ((argb >>> 24) & 0xff) / 255,
@@ -455,15 +454,15 @@ export class DataLayer {
   /**
    * 行データからポイントのサイズを取得する
    * @param row 行データ
-   * @param columns カラム名の配列
+
    * @returns ポイントサイズ
    */
-  getPointSize(row: any[], columns: string[]): number {
-    const sizeIdx = columns.indexOf('__size__');
-    if (sizeIdx === -1) {
+  getPointSize(row: Record<string, any>): number {
+    const size = row['__size__'];
+    if (size == null) {
       return 3;
     }
-    return row[sizeIdx];
+    return size;
   }
 
   /**
@@ -489,7 +488,7 @@ export class DataLayer {
     panY: number,
     aspectRatio: number,
     thresholdPixels: number = 10
-  ): Promise<{ row: any[]; columns: string[] } | null> {
+  ): Promise<Record<string, any> | null> {
     if (this.allPointsCache.length == 0 || this.repository == null) {
       return null;
     }
@@ -533,7 +532,7 @@ export class DataLayer {
       return null;
     }
 
-    return { row: this.buildRowFromData(data, 0), columns: data.columns };
+    return this.buildRowFromData(data, 0);
   }
 
   /**
@@ -549,7 +548,7 @@ export class DataLayer {
    * @param pointId 検索するポイントのrowid
    * @returns 見つかった場合はポイントデータ、そうでない場合はnull
    */
-  async findPointById(pointId: PointId): Promise<{ row: any[]; columns: string[] } | null> {
+  async findPointById(pointId: number): Promise<Record<string, any> | null> {
     if (!this.repository) {
       return null;
     }
@@ -563,20 +562,21 @@ export class DataLayer {
       return null;
     }
 
-    return { row: this.buildRowFromData(data, 0), columns: data.columns };
+    return this.buildRowFromData(data, 0);
   }
 
   /**
-   * ParquetDataから指定行のデータを配列として構築する
+   * ParquetDataから指定行のデータをレコードとして構築する
    * @param data ParquetData
    * @param rowIndex 行インデックス
    * @returns 行データの配列
    */
-  private buildRowFromData(data: ParquetData, rowIndex: number): any[] {
-    const row: any[] = new Array(data.columns.length);
+  private buildRowFromData(data: ParquetData, rowIndex: number): Record<string, any> {
+    const row: Record<string, any> = {};
     for (let j = 0; j < data.columns.length; j++) {
-      const column = data.columnData.get(data.columns[j]);
-      row[j] = column?.get(rowIndex);
+      const colName = data.columns[j];
+      const column = data.columnData.get(colName);
+      row[colName] = column?.get(rowIndex);
     }
     return row;
   }
