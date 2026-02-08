@@ -2,7 +2,7 @@ import type { ParquetData, ParquetReader } from './repository.js';
 import { createParquetReader } from './repository.js';
 import type { WhereCondition, ScatterPlotError, Color4f } from '../types.js';
 import { createError } from '../errors.js';
-import { getPointColor } from '../util/color.js';
+import { getPointColor, getPointSize } from '../util/point.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 
 /** DataLayer未初期化エラーメッセージ */
@@ -436,18 +436,8 @@ export class DataLayer {
     return getPointColor(row);
   }
 
-  /**
-   * 行データからポイントのサイズを取得する
-   * @param row 行データ
-
-   * @returns ポイントサイズ
-   */
   getPointSize(row: Record<string, any>): number {
-    const size = row['__size__'];
-    if (size == null) {
-      return 3;
-    }
-    return size;
+    return getPointSize(row);
   }
 
   /**

@@ -18,3 +18,16 @@ export function getPointColor(row: Record<string, any>): Color4f {
     b: (argb & 0xff) / 255,
   };
 }
+
+/**
+ * 行データからポイントのサイズを取得する
+ * @param row 行データ
+ * @returns ポイントサイズ
+ */
+export function getPointSize(row: Record<string, any>): number {
+  const size = row['__size__'];
+  if (size == null) {
+    return 3;
+  }
+  return size;
+}
