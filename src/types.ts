@@ -1,3 +1,5 @@
+import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
+
 /**
  * duckscatterライブラリの型定義
  */
@@ -154,6 +156,8 @@ export interface ScatterPlotOptions {
   labels?: LabelOptions;
   /** インタラクションコールバック */
   interaction?: InteractionOptions;
+  /** DB接続・データロード後に呼ばれるコールバック（ALTER TABLE等のSQL操作用） */
+  onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
 }
 
 /**

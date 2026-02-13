@@ -1,3 +1,4 @@
+import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 import type { ParquetData, ParquetReader } from './repository.js';
 import { createParquetReader } from './repository.js';
 import type { WhereCondition, ScatterPlotError } from '../types.js';
@@ -59,7 +60,11 @@ export class DataLayer {
   private onVisibilityChanged?: () => void;
 
   /** 全ポイントデータのキャッシュ（ポイント検索用、SoA形式） */
-  private pointsCache: PointsCache = { xArr: new Float64Array(0), yArr: new Float64Array(0), length: 0 };
+  private pointsCache: PointsCache = {
+    xArr: new Float64Array(0),
+    yArr: new Float64Array(0),
+    length: 0,
+  };
 
   /** WhereConditionから生成されたビジビリティフラグのキャッシュ（WHERE条件なし時は空） */
   private visibilityFlags = new Uint32Array(0);
@@ -87,9 +92,15 @@ export class DataLayer {
    * @param dataUrl Parquetファイルのurl
    * @returns 処理済みの全データ
    */
-  async initialize(dataUrl: string): Promise<AllPointsData> {
+  async initialize(
+    dataUrl: string,
+    onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>
+  ): Promise<AllPointsData> {
     this.repository = await createParquetReader();
     await this.repository.loadParquetFromUrl(dataUrl);
+    if (onDatabaseReady) {
+      await onDatabaseReady(this.repository.getConnection());
+    }
     return await this.loadAllPoints();
   }
 

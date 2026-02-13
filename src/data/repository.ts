@@ -119,6 +119,17 @@ export class ParquetReader {
   }
 
   /**
+   * データベース接続を取得する
+   * @returns DuckDBの接続オブジェクト
+   */
+  getConnection(): duckdb.AsyncDuckDBConnection {
+    if (!this.conn) {
+      throw new Error(ERROR_DB_NOT_INITIALIZED);
+    }
+    return this.conn;
+  }
+
+  /**
    * データベース接続を閉じてリソースを解放する
    */
   async close(): Promise<void> {

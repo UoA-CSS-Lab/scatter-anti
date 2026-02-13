@@ -1,3 +1,4 @@
+import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 import type {
   Label,
   ScatterPlotOptions,
@@ -28,6 +29,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
   private readonly dataUrl: string;
   private readonly labelUrl?: string;
+  private readonly onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
 
   /** GPUフィルターカラム名→インデックスのマッピング */
   private gpuFilterColumnMapping: Map<string, number> = new Map();
@@ -68,6 +70,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
     this.dataUrl = options.dataUrl;
     this.labelUrl = options.labels?.url;
+    this.onDatabaseReady = options.onDatabaseReady;
   }
 
   /**
@@ -75,7 +78,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async initialize(): Promise<void> {
     try {
-      const allPointsData = await this.dataLayer.initialize(this.dataUrl);
+      const allPointsData = await this.dataLayer.initialize(this.dataUrl, this.onDatabaseReady);
       await this.gpuLayer.initialize(allPointsData);
 
       const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
