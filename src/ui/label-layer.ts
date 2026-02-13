@@ -7,6 +7,7 @@ import type {
   LabelHoverCallback,
 } from '../types.js';
 import type { DataLayer } from '../data/data-layer.js';
+import { getPointColor, getPointSize } from '../util/point.js';
 
 /**
  * ラベルレイヤーの初期化オプション
@@ -40,9 +41,9 @@ export class LabelLayer {
   /** WebGPUキャンバス（位置決めに使用） */
   private canvas: HTMLCanvasElement;
   /** ラベル描画用の2Dキャンバス */
-  private labelCanvas: HTMLCanvasElement | null = null;
+  private labelCanvas!: HTMLCanvasElement;
   /** 2Dキャンバスの描画コンテキスト */
-  private labelContext: CanvasRenderingContext2D | null = null;
+  private labelContext!: CanvasRenderingContext2D;
   /** 表示するラベルの配列 */
   private labels: Label[] = [];
   /** ラベル間の最小距離（ピクセル） */
@@ -83,7 +84,7 @@ export class LabelLayer {
   /** ラベルホバー時のコールバック */
   private onLabelHover?: LabelHoverCallback;
   /** 現在ホバー中のポイント */
-  private hoveredPoint: { row: any[]; columns: string[] } | null = null;
+  private hoveredPoint: Record<string, any> | null = null;
   /** ホバーアウトラインのオプション */
   private hoverOutlineOptions: HoverOutlineOptions;
   /** データレイヤー参照 */
@@ -97,7 +98,6 @@ export class LabelLayer {
     this.canvas = options.canvas;
     this.minLabelDistance = options.minLabelDistance ?? this.minLabelDistance;
     this.labelFontSize = options.labelFontSize ?? this.labelFontSize;
-    this.labels = [];
     this.filterLambda = options.filterLambda;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
@@ -110,12 +110,7 @@ export class LabelLayer {
       minimumHoverSize: options.hoverOutlineOptions?.minimumHoverSize ?? 10,
       outlinedPointAddition: options.hoverOutlineOptions?.outlinedPointAddition ?? 3,
     };
-  }
 
-  /**
-   * ラベルキャンバスオーバーレイを初期化する
-   */
-  initialize(): void {
     this.createLabelCanvas();
   }
 
@@ -145,7 +140,7 @@ export class LabelLayer {
       parent.appendChild(this.labelCanvas);
     }
 
-    this.labelContext = this.labelCanvas.getContext('2d');
+    this.labelContext = this.labelCanvas.getContext('2d')!;
 
     this.setupEventListeners();
   }
@@ -166,10 +161,6 @@ export class LabelLayer {
    * ラベルを2Dキャンバスに描画する
    */
   render(): void {
-    if (!this.labelContext || !this.labelCanvas) {
-      return;
-    }
-
     this.labelContext.clearRect(0, 0, this.labelCanvas.width, this.labelCanvas.height);
     this.renderedLabelBounds = [];
 
@@ -285,7 +276,7 @@ export class LabelLayer {
    * ホバー中のポイントにアウトラインを描画する
    */
   private renderPointOutline(): void {
-    if (!this.labelContext || !this.labelCanvas || !this.hoveredPoint || !this.dataLayer) {
+    if (!this.hoveredPoint || !this.dataLayer) {
       return;
     }
 
@@ -293,19 +284,16 @@ export class LabelLayer {
       return;
     }
 
-    const xIndex = this.hoveredPoint.columns.indexOf('x');
-    const yIndex = this.hoveredPoint.columns.indexOf('y');
+    const pointX = this.hoveredPoint['x'];
+    const pointY = this.hoveredPoint['y'];
 
-    if (xIndex === -1 || yIndex === -1) {
+    if (pointX == null || pointY == null) {
       return;
     }
 
-    const { x: screenX, y: screenY } = this.worldToScreenCoords(
-      this.hoveredPoint.row[xIndex],
-      this.hoveredPoint.row[yIndex]
-    );
+    const { x: screenX, y: screenY } = this.worldToScreenCoords(pointX, pointY);
 
-    const baseSize = this.dataLayer.getPointSize(this.hoveredPoint.row, this.hoveredPoint.columns);
+    const baseSize = getPointSize(this.hoveredPoint);
     const zoomScaledSize = Math.max(
       baseSize * Math.pow(this.zoom, 0.3) + (this.hoverOutlineOptions.outlinedPointAddition ?? 3),
       this.hoverOutlineOptions.minimumHoverSize ?? 10
@@ -316,7 +304,7 @@ export class LabelLayer {
     this.labelContext.beginPath();
     this.labelContext.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
 
-    const color = this.dataLayer.getPointColor(this.hoveredPoint.row, this.hoveredPoint.columns);
+    const color = getPointColor(this.hoveredPoint);
     this.labelContext.fillStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, ${Math.round(color.a * 255)})`;
     this.labelContext.fill();
 
@@ -350,14 +338,10 @@ export class LabelLayer {
    * ホバーとクリック操作用のイベントリスナーを設定する
    */
   private setupEventListeners(): void {
-    if (!this.labelCanvas) return;
-
     const parent = this.labelCanvas.parentElement;
     if (!parent) return;
 
     parent.addEventListener('mousemove', async (e: MouseEvent) => {
-      if (!this.labelCanvas) return;
-
       const rect = this.labelCanvas.getBoundingClientRect();
       const scaleX = this.labelCanvas.width / rect.width;
       const scaleY = this.labelCanvas.height / rect.height;
@@ -366,7 +350,7 @@ export class LabelLayer {
 
       const labelAtPosition = this.getLabelAtPosition(x, y);
 
-      let pointHit: { row: any[]; columns: string[] } | null = null;
+      let pointHit: Record<string, any> | null = null;
       if (!labelAtPosition && this.dataLayer) {
         const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
         pointHit = await this.dataLayer.findNearestPoint(
@@ -410,9 +394,9 @@ export class LabelLayer {
     });
 
     this.labelCanvas.addEventListener('click', (e: MouseEvent) => {
-      const rect = this.labelCanvas!.getBoundingClientRect();
-      const scaleX = this.labelCanvas!.width / rect.width;
-      const scaleY = this.labelCanvas!.height / rect.height;
+      const rect = this.labelCanvas.getBoundingClientRect();
+      const scaleX = this.labelCanvas.width / rect.width;
+      const scaleY = this.labelCanvas.height / rect.height;
       const x = (e.clientX - rect.left) * scaleX;
       const y = (e.clientY - rect.top) * scaleY;
 
@@ -468,10 +452,8 @@ export class LabelLayer {
         this.onPointHover(null);
       }
 
-      if (this.labelCanvas) {
-        this.labelCanvas.style.pointerEvents = 'none';
-        this.labelCanvas.style.cursor = 'default';
-      }
+      this.labelCanvas.style.pointerEvents = 'none';
+      this.labelCanvas.style.cursor = 'default';
       this.render();
     });
   }
@@ -502,12 +484,10 @@ export class LabelLayer {
    * @param height 新しい高さ
    */
   resize(width: number, height: number): void {
-    if (this.labelCanvas) {
-      this.labelCanvas.width = width;
-      this.labelCanvas.height = height;
-      this.labelCanvas.style.width = this.canvas.style.width;
-      this.labelCanvas.style.height = this.canvas.style.height;
-    }
+    this.labelCanvas.width = width;
+    this.labelCanvas.height = height;
+    this.labelCanvas.style.width = this.canvas.style.width;
+    this.labelCanvas.style.height = this.canvas.style.height;
   }
 
   /**
@@ -556,7 +536,7 @@ export class LabelLayer {
    * プログラム的にホバー中のポイントを設定する
    * @param data ホバーするポイントデータ、またはnullでクリア
    */
-  setHoveredPoint(data: { row: any[]; columns: string[] } | null): void {
+  setHoveredPoint(data: Record<string, any> | null): void {
     if (data === this.hoveredPoint) {
       return;
     }
@@ -607,7 +587,7 @@ export class LabelLayer {
    * 現在ホバー中のポイントを取得する
    * @returns ホバー中のポイント、またはnull
    */
-  getHoveredPoint(): { row: any[]; columns: string[] } | null {
+  getHoveredPoint(): Record<string, any> | null {
     return this.hoveredPoint;
   }
 
@@ -626,9 +606,6 @@ export class LabelLayer {
    * @returns スクリーン座標
    */
   private worldToScreenCoords(worldX: number, worldY: number): { x: number; y: number } {
-    if (!this.labelCanvas) {
-      return { x: 0, y: 0 };
-    }
     const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
     const clipX = worldX * (this.zoom / aspectRatio) + this.panX;
     const clipY = worldY * this.zoom + this.panY;
@@ -641,7 +618,7 @@ export class LabelLayer {
    * リソースを解放してレイヤーを破棄する
    */
   destroy(): void {
-    if (this.labelCanvas && this.labelCanvas.parentElement) {
+    if (this.labelCanvas.parentElement) {
       this.labelCanvas.parentElement.removeChild(this.labelCanvas);
     }
   }

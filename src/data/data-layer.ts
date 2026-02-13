@@ -1,11 +1,9 @@
+import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 import type { ParquetData, ParquetReader } from './repository.js';
 import { createParquetReader } from './repository.js';
-import type { WhereCondition, ScatterPlotError, PointId } from '../types.js';
+import type { WhereCondition, ScatterPlotError } from '../types.js';
 import { createError } from '../errors.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
-
-/** DataLayer未初期化エラーメッセージ */
-const ERROR_NOT_INITIALIZED = 'DataLayer not initialized. Call initialize() first.';
 
 /**
  * DataLayerの設定オプション
@@ -19,22 +17,21 @@ export interface DataLayerOptions {
   whereConditions?: WhereCondition[];
   /** GPUでフィルタリングするカラム名（最大4つ） */
   gpuFilterColumns?: string[];
-  /** ポイントを識別するためのカラム名 */
-  idColumn: string;
   /** エラーをScatterPlotに通知するためのコールバック */
   onError?: (error: ScatterPlotError) => void;
   /** データ変更時に呼び出されるコールバック */
   onDataChanged?: () => void;
+  /** WHERE条件変更時にビジビリティフラグ更新が必要な場合のコールバック */
+  onVisibilityChanged?: () => void;
 }
 
 /**
- * 現在表示中のポイントデータ（ポイント検索用）
+ * 全ポイントデータのキャッシュ（SoA形式）
  */
-interface PointData {
-  id: string;
-  x: number;
-  y: number;
-  size: number;
+interface PointsCache {
+  xArr: Float64Array | Float32Array;
+  yArr: Float64Array | Float32Array;
+  length: number;
 }
 
 /**
@@ -59,11 +56,22 @@ export class DataLayer {
   private onError?: (error: ScatterPlotError) => void;
   /** データ変更通知用コールバック */
   private onDataChanged?: () => void;
+  /** WHERE条件変更時のビジビリティ更新コールバック */
+  private onVisibilityChanged?: () => void;
 
-  /** 全ポイントデータのキャッシュ（ポイント検索用） */
-  private allPointsCache: PointData[] = [];
-  /** ポイント識別用のカラム名 */
-  private idColumn: string = '';
+  /** 全ポイントデータのキャッシュ（ポイント検索用、SoA形式） */
+  private pointsCache: PointsCache = {
+    xArr: new Float64Array(0),
+    yArr: new Float64Array(0),
+    length: 0,
+  };
+
+  /** WhereConditionから生成されたビジビリティフラグのキャッシュ（WHERE条件なし時は空） */
+  private visibilityFlags = new Uint32Array(0);
+  /** GPUフィルターカラムデータのキャッシュ（4値/ポイント） */
+  private filterColumnData = new Float32Array(0);
+  /** 現在のGPUフィルターレンジ（スライダーで高頻度更新） */
+  private gpuFilterRanges: { columnIndex: number; min: number; max: number }[] = [];
 
   /**
    * DataLayerインスタンスを作成する
@@ -74,9 +82,9 @@ export class DataLayer {
     this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
     this.gpuFilterColumns = options.gpuFilterColumns ?? [];
-    this.idColumn = options.idColumn;
     this.onError = options.onError;
     this.onDataChanged = options.onDataChanged;
+    this.onVisibilityChanged = options.onVisibilityChanged;
   }
 
   /**
@@ -84,9 +92,15 @@ export class DataLayer {
    * @param dataUrl Parquetファイルのurl
    * @returns 処理済みの全データ
    */
-  async initialize(dataUrl: string): Promise<AllPointsData> {
+  async initialize(
+    dataUrl: string,
+    onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>
+  ): Promise<AllPointsData> {
     this.repository = await createParquetReader();
-    await this.repository.loadParquetFromUrl(dataUrl, this.idColumn);
+    await this.repository.loadParquetFromUrl(dataUrl);
+    if (onDatabaseReady) {
+      await onDatabaseReady(this.repository.getConnection());
+    }
     return await this.loadAllPoints();
   }
 
@@ -95,10 +109,7 @@ export class DataLayer {
    * @param geojson GeoJSON FeatureCollectionオブジェクト
    */
   async loadLabelData(geojson: any): Promise<void> {
-    if (!this.repository) {
-      throw new Error(ERROR_NOT_INITIALIZED);
-    }
-    await this.repository.loadGeoJson(geojson);
+    await this.repository!.loadGeoJson(geojson);
   }
 
   /**
@@ -107,49 +118,38 @@ export class DataLayer {
    * @returns SQL WHERE句の文字列
    */
   private buildWhereClauseString(condition: WhereCondition): string {
-    if (condition.type === 'numeric') {
-      return `${condition.column} ${condition.operator} ${condition.value}`;
-    } else if (condition.type === 'raw') {
-      return condition.sql;
-    } else {
-      const escapedValue = condition.value.replace(/'/g, "''");
-      switch (condition.operator) {
-        case 'equals':
-          return `${condition.column} = '${escapedValue}'`;
-        case 'contains':
-          return `${condition.column} LIKE '%${escapedValue}%'`;
-        case 'startsWith':
-          return `${condition.column} LIKE '${escapedValue}%'`;
-        case 'endsWith':
-          return `${condition.column} LIKE '%${escapedValue}'`;
+    switch (condition.type) {
+      case 'numeric':
+        return `${condition.column} ${condition.operator} ${condition.value}`;
+      case 'raw':
+        return condition.sql;
+      case 'string': {
+        const escapedValue = condition.value.replace(/'/g, "''");
+        switch (condition.operator) {
+          case 'equals':
+            return `${condition.column} = '${escapedValue}'`;
+          case 'contains':
+            return `${condition.column} LIKE '%${escapedValue}%'`;
+          case 'startsWith':
+            return `${condition.column} LIKE '${escapedValue}%'`;
+          case 'endsWith':
+            return `${condition.column} LIKE '%${escapedValue}'`;
+        }
       }
     }
   }
 
   /**
    * 全データを読み込んでGPU用フォーマットに変換する
+   * WHERE条件によるフィルタリングはビットフラグで行うため、ここでは適用しない
    * @returns 処理済みの全データ
    */
   async loadAllPoints(): Promise<AllPointsData> {
-    if (!this.repository) {
-      return {
-        instanceData: new Float32Array(0),
-        totalCount: 0,
-      };
-    }
-
     try {
-      const whereConditions: string[] = [];
-      for (const condition of this.whereConditions) {
-        whereConditions.push(this.buildWhereClauseString(condition));
-      }
-      const whereClause =
-        whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
-
-      const sql = `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ${this.idColumn} FROM parquet_data ${whereClause}`;
-
-      const data = await this.repository.query({ toString: () => sql });
-
+      const data = await this.repository!.query({
+        toString: () =>
+          `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data ORDER BY rowid`,
+      });
       if (!data) {
         return {
           instanceData: new Float32Array(0),
@@ -157,7 +157,36 @@ export class DataLayer {
         };
       }
 
-      return this.processDataToGpuFormat(data);
+      const xColumn = data.columnData.get('x')!;
+      const yColumn = data.columnData.get('y')!;
+      const sizeColumn = data.columnData.get('__size__')!;
+      const colorColumn = data.columnData.get('__color__')!;
+
+      const buffer = new ArrayBuffer(data.rowCount * 16);
+      const floatView = new Float32Array(buffer);
+      const uint32View = new Uint32Array(buffer);
+
+      const xArr = xColumn.toArray();
+      const yArr = yColumn.toArray();
+      const sizeArr = sizeColumn.toArray();
+      const colorArr = colorColumn.toArray();
+
+      const rowCount = data.rowCount;
+
+      for (let i = 0; i < rowCount; i++) {
+        const base = i * 4;
+        floatView[base] = xArr[i];
+        floatView[base + 1] = yArr[i];
+        uint32View[base + 2] = colorArr[i];
+        floatView[base + 3] = sizeArr[i];
+      }
+
+      this.pointsCache = { xArr, yArr, length: rowCount };
+
+      return {
+        instanceData: floatView,
+        totalCount: data.rowCount,
+      };
     } catch (e) {
       if (this.onError) {
         this.onError(
@@ -179,10 +208,9 @@ export class DataLayer {
    */
   async loadGpuFilterColumns(): Promise<{
     data: Float32Array;
-    columnCount: number;
     columnMapping: Map<string, number>;
   } | null> {
-    if (this.gpuFilterColumns.length === 0 || !this.repository) {
+    if (this.gpuFilterColumns.length === 0) {
       return null;
     }
 
@@ -193,9 +221,9 @@ export class DataLayer {
         .map((col, i) => `CAST(${col} AS DOUBLE) AS __filter_col_${i}__`)
         .join(', ');
 
-      const sql = `SELECT ${columnSelects} FROM parquet_data`;
-      const data = await this.repository.query({ toString: () => sql });
-
+      const data = await this.repository!.query({
+        toString: () => `SELECT ${columnSelects} FROM parquet_data`,
+      });
       if (!data || data.rowCount === 0) {
         return null;
       }
@@ -206,8 +234,8 @@ export class DataLayer {
         const baseIndex = i * 4;
         for (let j = 0; j < 4; j++) {
           if (j < columns.length) {
-            const colData = data.columnData.get(`__filter_col_${j}__`);
-            filterData[baseIndex + j] = colData?.get(i) ?? 0;
+            const colData = data.columnData.get(`__filter_col_${j}__`)!;
+            filterData[baseIndex + j] = colData.get(i);
           } else {
             filterData[baseIndex + j] = 0;
           }
@@ -217,9 +245,10 @@ export class DataLayer {
       const columnMapping = new Map<string, number>();
       columns.forEach((col, i) => columnMapping.set(col, i));
 
+      this.filterColumnData = filterData;
+
       return {
         data: filterData,
-        columnCount: columns.length,
         columnMapping,
       };
     } catch (e) {
@@ -235,98 +264,106 @@ export class DataLayer {
   }
 
   /**
+   * WHERE条件に基づいてビットフラグ配列を生成する
+   * @returns 可視ポイントのビットマップと総ポイント数、エラー時はnull
+   */
+  async loadVisibilityFlags(): Promise<{
+    flags: Uint32Array;
+    totalCount: number;
+  } | null> {
+    try {
+      const totalCount = this.pointsCache.length;
+
+      if (totalCount === 0) {
+        return null;
+      }
+
+      // WHERE条件がない場合は全ポイント可視
+      if (this.whereConditions.length === 0) {
+        this.visibilityFlags = new Uint32Array(0);
+        const wordCount = Math.ceil(totalCount / 32);
+        const flags = new Uint32Array(wordCount);
+        flags.fill(0xffffffff);
+        return { flags, totalCount };
+      }
+
+      // WHERE句を構築
+      const whereConditions: string[] = [];
+      for (const condition of this.whereConditions) {
+        whereConditions.push(this.buildWhereClauseString(condition));
+      }
+      const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+
+      // 可視ポイントのrowidを取得
+      const data = await this.repository!.query({
+        toString: () => `SELECT rowid FROM parquet_data ${whereClause} ORDER BY rowid`,
+      });
+      if (!data) {
+        return null;
+      }
+
+      // ビットマップを構築（初期値は全て0=非可視）
+      const wordCount = Math.ceil(totalCount / 32);
+      const flags = new Uint32Array(wordCount);
+      flags.fill(0);
+
+      const idxArray = data.columnData.get('rowid')!.toArray();
+      for (let i = 0; i < idxArray.length; i++) {
+        const idx = Number(idxArray[i]);
+        flags[idx >> 5] |= 1 << (idx & 31);
+      }
+
+      this.visibilityFlags = this.whereConditions.length === 0 ? new Uint32Array(0) : flags;
+
+      return { flags, totalCount };
+    } catch (e) {
+      if (this.onError) {
+        this.onError(
+          createError('QUERY_FAILED', 'Failed to load visibility flags', {
+            cause: e instanceof Error ? e : undefined,
+          })
+        );
+      }
+      return null;
+    }
+  }
+
+  /**
    * カスタムSQLクエリを実行する
    * @param query SQLクエリ
    * @returns クエリ結果のParquetData
    */
   async executeQuery(query: string | { toString: () => string }): Promise<ParquetData | undefined> {
-    if (!this.repository) {
-      return undefined;
-    }
-    const queryObj = typeof query === 'string' ? { toString: () => query } : query;
-    return this.repository.query(queryObj);
-  }
-
-  /**
-   * カラム形式のデータをGPU用インスタンスデータフォーマットに変換する
-   * フォーマット: ポイントごとに [x (f32), y (f32), color (u32), size (f32)]
-   * @param data ParquetData形式のデータ
-   * @returns 処理済みデータ
-   */
-  private processDataToGpuFormat(data: ParquetData): AllPointsData {
-    const xColumn = data.columnData.get('x');
-    const yColumn = data.columnData.get('y');
-    const sizeColumn = data.columnData.get('__size__');
-    const colorColumn = data.columnData.get('__color__');
-    const idColumn = data.columnData.get(this.idColumn);
-
-    if (!xColumn || !yColumn || !sizeColumn || !colorColumn || !idColumn) {
-      return {
-        instanceData: new Float32Array(0),
-        totalCount: 0,
-      };
-    }
-
-    const cachedData = new Array<PointData>(data.rowCount);
-
-    const buffer = new ArrayBuffer(data.rowCount * 16);
-    const floatView = new Float32Array(buffer);
-    const uint32View = new Uint32Array(buffer);
-
-    for (let i = 0; i < data.rowCount; i++) {
-      const x = xColumn.get(i);
-      const y = yColumn.get(i);
-      const size = sizeColumn.get(i);
-      const argbRaw = colorColumn.get(i);
-      const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
-
-      const baseIndex = i * 4;
-      floatView[baseIndex + 0] = x;
-      floatView[baseIndex + 1] = y;
-      uint32View[baseIndex + 2] = argb >>> 0;
-      floatView[baseIndex + 3] = size;
-
-      cachedData[i] = {
-        id: idColumn.get(i),
-        x: x,
-        y: y,
-        size: size,
-      };
-    }
-
-    this.allPointsCache = cachedData;
-
-    return {
-      instanceData: floatView,
-      totalCount: data.rowCount,
-    };
+    return this.repository!.query(typeof query === 'string' ? { toString: () => query } : query);
   }
 
   /**
    * 設定オプションを更新する
    * @param options 更新する設定オプション
-   * @returns GPUフィルターカラムが変更された場合はtrue
+   * @returns 変更の種類を示すオブジェクト
    */
   updateOptions(options: Partial<DataLayerOptions>): {
     gpuFilterColumnsChanged: boolean;
   } {
-    let needsReload = false;
+    let needsFullReload = false;
+    let needsVisibilityUpdate = false;
     let gpuFilterColumnsChanged = false;
 
     if (options.sizeSql !== undefined && options.sizeSql !== this.sizeSql) {
       this.sizeSql = options.sizeSql;
-      needsReload = true;
+      needsFullReload = true;
     }
     if (options.colorSql !== undefined && options.colorSql !== this.colorSql) {
       this.colorSql = options.colorSql;
-      needsReload = true;
+      needsFullReload = true;
     }
     if (options.whereConditions !== undefined) {
       const oldConditions = JSON.stringify(this.whereConditions);
       const newConditions = JSON.stringify(options.whereConditions);
       if (oldConditions !== newConditions) {
         this.whereConditions = options.whereConditions;
-        needsReload = true;
+        // WHERE条件変更時はフルリロードではなくビジビリティ更新のみ
+        needsVisibilityUpdate = true;
       }
     }
     if (options.gpuFilterColumns !== undefined) {
@@ -337,53 +374,28 @@ export class DataLayer {
         gpuFilterColumnsChanged = true;
       }
     }
-    if (options.idColumn !== undefined) {
-      this.idColumn = options.idColumn;
-    }
     if (options.onDataChanged !== undefined) {
       this.onDataChanged = options.onDataChanged;
     }
+    if (options.onVisibilityChanged !== undefined) {
+      this.onVisibilityChanged = options.onVisibilityChanged;
+    }
 
-    if (needsReload && this.onDataChanged) {
+    if (needsFullReload && this.onDataChanged) {
       this.onDataChanged();
+    } else if (needsVisibilityUpdate && this.onVisibilityChanged) {
+      this.onVisibilityChanged();
     }
 
     return { gpuFilterColumnsChanged };
   }
 
   /**
-   * 行データからポイントの色を取得する
-   * @param row 行データ
-   * @param columns カラム名の配列
-   * @returns RGBAカラーオブジェクト
+   * GPUフィルターレンジを更新する（findNearestPointで使用）
+   * スライダー変更時にO(1)で呼び出される
    */
-  getPointColor(row: any[], columns: string[]): { r: number; g: number; b: number; a: number } {
-    const colorIdx = columns.indexOf('__color__');
-    if (colorIdx === -1) {
-      return { r: 0.3, g: 0.3, b: 0.8, a: 0.3 };
-    }
-    const argbRaw = row[colorIdx];
-    const argb = typeof argbRaw === 'bigint' ? Number(argbRaw) : argbRaw;
-    return {
-      a: ((argb >>> 24) & 0xff) / 255,
-      r: ((argb >>> 16) & 0xff) / 255,
-      g: ((argb >>> 8) & 0xff) / 255,
-      b: (argb & 0xff) / 255,
-    };
-  }
-
-  /**
-   * 行データからポイントのサイズを取得する
-   * @param row 行データ
-   * @param columns カラム名の配列
-   * @returns ポイントサイズ
-   */
-  getPointSize(row: any[], columns: string[]): number {
-    const sizeIdx = columns.indexOf('__size__');
-    if (sizeIdx === -1) {
-      return 3;
-    }
-    return row[sizeIdx];
+  setGpuFilterRanges(ranges: { columnIndex: number; min: number; max: number }[]): void {
+    this.gpuFilterRanges = ranges;
   }
 
   /**
@@ -409,8 +421,9 @@ export class DataLayer {
     panY: number,
     aspectRatio: number,
     thresholdPixels: number = 10
-  ): Promise<{ row: any[]; columns: string[] } | null> {
-    if (this.allPointsCache.length == 0 || this.repository == null) {
+  ): Promise<Record<string, any> | null> {
+    const { xArr, yArr, length } = this.pointsCache;
+    if (length === 0) {
       return null;
     }
 
@@ -422,38 +435,47 @@ export class DataLayer {
 
     const thresholdClip = (thresholdPixels / canvasWidth) * 2;
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
+    const thresholdWorldSq = thresholdWorld * thresholdWorld;
 
-    let nearestId: string | null = null;
-    let nearestDistance = Infinity;
+    let nearestRowid: number | null = null;
+    let nearestDistanceSq = Infinity;
 
-    for (let i = 0; i < this.allPointsCache.length; i++) {
-      const pointX = this.allPointsCache[i].x;
-      const pointY = this.allPointsCache[i].y;
+    const checkVisibility = this.visibilityFlags.length > 0;
+    const checkGpuFilter = this.filterColumnData.length > 0 && this.gpuFilterRanges.length > 0;
 
-      const dx = pointX - worldX;
-      const dy = pointY - worldY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+    for (let i = 0; i < length; i++) {
+      if (checkVisibility) {
+        if ((this.visibilityFlags[i >> 5] & (1 << (i & 31))) === 0) continue;
+      }
 
-      if (distance < nearestDistance && distance <= thresholdWorld) {
-        nearestDistance = distance;
-        nearestId = this.allPointsCache[i].id;
+      if (checkGpuFilter) {
+        const base = i * 4;
+        let skip = false;
+        for (const r of this.gpuFilterRanges) {
+          const v = this.filterColumnData[base + r.columnIndex];
+          if (v < r.min || v > r.max) {
+            skip = true;
+            break;
+          }
+        }
+        if (skip) continue;
+      }
+
+      const dx = xArr[i] - worldX;
+      const dy = yArr[i] - worldY;
+      const distanceSq = dx * dx + dy * dy;
+
+      if (distanceSq < nearestDistanceSq && distanceSq <= thresholdWorldSq) {
+        nearestDistanceSq = distanceSq;
+        nearestRowid = i;
       }
     }
 
-    if (nearestId == null) {
+    if (nearestRowid == null) {
       return null;
     }
 
-    const data = await this.repository.query({
-      toString: () =>
-        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${nearestId}`,
-    });
-
-    if (!data) {
-      return null;
-    }
-
-    return { row: this.buildRowFromData(data, 0), columns: data.columns };
+    return this.findPointById(nearestRowid);
   }
 
   /**
@@ -465,40 +487,24 @@ export class DataLayer {
   }
 
   /**
-   * IDでポイントを検索する
-   * @param pointId 検索するポイントのidColumn値
+   * rowidでポイントを検索する
+   * @param pointId 検索するポイントのrowid
    * @returns 見つかった場合はポイントデータ、そうでない場合はnull
    */
-  async findPointById(pointId: PointId): Promise<{ row: any[]; columns: string[] } | null> {
-    if (!this.repository) {
-      return null;
-    }
-
-    const escapedId = typeof pointId === 'string' ? `'${pointId.replace(/'/g, "''")}'` : pointId;
-
-    const data = await this.repository.query({
+  async findPointById(pointId: number): Promise<Record<string, any> | null> {
+    const data = await this.repository!.query({
       toString: () =>
-        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE ${this.idColumn} = ${escapedId}`,
+        `SELECT *, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data WHERE rowid = ${pointId}`,
     });
 
     if (!data || data.rowCount === 0) {
       return null;
     }
-
-    return { row: this.buildRowFromData(data, 0), columns: data.columns };
-  }
-
-  /**
-   * ParquetDataから指定行のデータを配列として構築する
-   * @param data ParquetData
-   * @param rowIndex 行インデックス
-   * @returns 行データの配列
-   */
-  private buildRowFromData(data: ParquetData, rowIndex: number): any[] {
-    const row: any[] = new Array(data.columns.length);
+    const row: Record<string, any> = {};
     for (let j = 0; j < data.columns.length; j++) {
-      const column = data.columnData.get(data.columns[j]);
-      row[j] = column?.get(rowIndex);
+      const colName = data.columns[j];
+      const column = data.columnData.get(colName)!;
+      row[colName] = column.get(0);
     }
     return row;
   }

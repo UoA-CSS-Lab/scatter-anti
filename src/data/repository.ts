@@ -47,9 +47,8 @@ export class ParquetReader {
   /**
    * URLからParquetファイルを読み込み、テーブルを作成する
    * @param url Parquetファイルのurl
-   * @param idColumn 一意のインデックスを作成するカラム名
    */
-  async loadParquetFromUrl(url: string, idColumn: string): Promise<void> {
+  async loadParquetFromUrl(url: string): Promise<void> {
     if (!this.conn) {
       throw new Error(ERROR_DB_NOT_INITIALIZED);
     }
@@ -63,7 +62,6 @@ export class ParquetReader {
       `CREATE TABLE IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
     );
     await this.db!.dropFile('temp.parquet');
-    await this.conn.query(`CREATE UNIQUE INDEX idx_${idColumn} ON parquet_data (${idColumn});`);
   }
 
   /**
@@ -118,6 +116,17 @@ export class ParquetReader {
       `CREATE TABLE IF NOT EXISTS label_data AS SELECT * FROM read_json_auto('label_data.json')`
     );
     await this.db!.dropFile('label_data.json');
+  }
+
+  /**
+   * データベース接続を取得する
+   * @returns DuckDBの接続オブジェクト
+   */
+  getConnection(): duckdb.AsyncDuckDBConnection {
+    if (!this.conn) {
+      throw new Error(ERROR_DB_NOT_INITIALIZED);
+    }
+    return this.conn;
   }
 
   /**

@@ -20,9 +20,13 @@ struct FilterUniforms {
   lodThreshold: u32,
   totalPoints: u32,
   activeFilterMask: u32,
-  _padding: u32,
+  whereFilterEnabled: u32,
   filterRangeMin: vec4<f32>,
   filterRangeMax: vec4<f32>,
+  filteredDisplayMode: u32,
+  _pad1: u32,
+  _pad2: u32,
+  _pad3: u32,
 }
 
 @group(0) @binding(0) var<storage, read> allPoints: array<Point>;
@@ -30,15 +34,32 @@ struct FilterUniforms {
 @group(0) @binding(2) var<storage, read_write> counter: atomic<u32>;
 @group(0) @binding(3) var<uniform> uniforms: FilterUniforms;
 @group(0) @binding(4) var<storage, read> filterColumns: array<vec4<f32>>;
+@group(0) @binding(5) var<storage, read> visibilityFlags: array<u32>;
+@group(0) @binding(6) var<storage, read_write> filteredIndices: array<u32>;
+@group(0) @binding(7) var<storage, read_write> filteredCounter: atomic<u32>;
 
 var<workgroup> localCount: atomic<u32>;
 var<workgroup> localIndices: array<u32, 256>;
 var<workgroup> globalOffset: u32;
 
+var<workgroup> localFilteredCount: atomic<u32>;
+var<workgroup> localFilteredIndices: array<u32, 256>;
+var<workgroup> globalFilteredOffset: u32;
+
 fn pcgHash(input: u32) -> u32 {
     let state = input * 747796405u + 2891336453u;
     let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
     return (word >> 22u) ^ word;
+}
+
+fn isVisibleByWhereFilter(idx: u32) -> bool {
+  if (uniforms.whereFilterEnabled == 0u) {
+    return true;
+  }
+  let wordIndex = idx / 32u;
+  let bitIndex = idx % 32u;
+  let word = visibilityFlags[wordIndex];
+  return (word & (1u << bitIndex)) != 0u;
 }
 
 @compute @workgroup_size(256)
@@ -51,53 +72,70 @@ fn main(
 
   if (lid == 0u) {
     atomicStore(&localCount, 0u);
+    atomicStore(&localFilteredCount, 0u);
   }
   workgroupBarrier();
 
   var myLocalSlot: u32 = 0xFFFFFFFFu;
+  var myLocalFilteredSlot: u32 = 0xFFFFFFFFu;
+
   if (idx < uniforms.totalPoints) {
+    let passesWhere = isVisibleByWhereFilter(idx);
+
+    // LODチェック（全ポイント共通）
+    var passesLOD = true;
     let hash = pcgHash(idx);
-    var isVisible = hash <= uniforms.lodThreshold;
+    passesLOD = hash <= uniforms.lodThreshold;
 
-    if (isVisible) {
+    // ビューポート境界チェック（全ポイント共通）
+    var passesBounds = false;
+    if (passesLOD) {
       let point = allPoints[idx];
-
-      isVisible = point.x >= uniforms.worldBoundsMin.x && point.x <= uniforms.worldBoundsMax.x &&
-                  point.y >= uniforms.worldBoundsMin.y && point.y <= uniforms.worldBoundsMax.y;
+      passesBounds = point.x >= uniforms.worldBoundsMin.x && point.x <= uniforms.worldBoundsMax.x &&
+                     point.y >= uniforms.worldBoundsMin.y && point.y <= uniforms.worldBoundsMax.y;
     }
 
-    if (isVisible && uniforms.activeFilterMask != 0u) {
+    // GPUレンジフィルター（WHERE通過分のみ適用）
+    var passesGpuFilter = true;
+    if (passesBounds && passesWhere && uniforms.activeFilterMask != 0u) {
       let filterData = filterColumns[idx];
 
       if ((uniforms.activeFilterMask & 1u) != 0u) {
-        isVisible = isVisible &&
+        passesGpuFilter = passesGpuFilter &&
                     filterData.x >= uniforms.filterRangeMin.x &&
                     filterData.x <= uniforms.filterRangeMax.x;
       }
       if ((uniforms.activeFilterMask & 2u) != 0u) {
-        isVisible = isVisible &&
+        passesGpuFilter = passesGpuFilter &&
                     filterData.y >= uniforms.filterRangeMin.y &&
                     filterData.y <= uniforms.filterRangeMax.y;
       }
       if ((uniforms.activeFilterMask & 4u) != 0u) {
-        isVisible = isVisible &&
+        passesGpuFilter = passesGpuFilter &&
                     filterData.z >= uniforms.filterRangeMin.z &&
                     filterData.z <= uniforms.filterRangeMax.z;
       }
       if ((uniforms.activeFilterMask & 8u) != 0u) {
-        isVisible = isVisible &&
+        passesGpuFilter = passesGpuFilter &&
                     filterData.w >= uniforms.filterRangeMin.w &&
                     filterData.w <= uniforms.filterRangeMax.w;
       }
     }
 
-    if (isVisible) {
+    let isFullyVisible = passesLOD && passesBounds && passesWhere && passesGpuFilter;
+    let isFilteredVisible = passesLOD && passesBounds && (!passesWhere || !passesGpuFilter) && uniforms.filteredDisplayMode == 1u;
+
+    if (isFullyVisible) {
       myLocalSlot = atomicAdd(&localCount, 1u);
       localIndices[myLocalSlot] = idx;
+    } else if (isFilteredVisible) {
+      myLocalFilteredSlot = atomicAdd(&localFilteredCount, 1u);
+      localFilteredIndices[myLocalFilteredSlot] = idx;
     }
   }
   workgroupBarrier();
 
+  // 可視ポイントのフラッシュ
   let count = atomicLoad(&localCount);
   if (lid == 0u && count > 0u) {
     globalOffset = atomicAdd(&counter, count);
@@ -106,6 +144,17 @@ fn main(
 
   if (lid < count) {
     visibleIndices[globalOffset + lid] = localIndices[lid];
+  }
+
+  // フィルター済みポイントのフラッシュ
+  let filteredCount = atomicLoad(&localFilteredCount);
+  if (lid == 0u && filteredCount > 0u) {
+    globalFilteredOffset = atomicAdd(&filteredCounter, filteredCount);
+  }
+  workgroupBarrier();
+
+  if (lid < filteredCount) {
+    filteredIndices[globalFilteredOffset + lid] = localFilteredIndices[lid];
   }
 }
 `;
@@ -150,7 +199,7 @@ struct Uniforms {
   viewportHeight: f32,
   pointAlpha: f32,
   pointSizeScale: f32,
-  _padding1: f32,
+  grayedMode: f32,
   _padding2: f32,
   _padding3: f32,
 }
@@ -196,7 +245,12 @@ fn vertexMain(
   );
 
   output.position = clipPos + vec4<f32>(offsetClip, 0.0, 0.0);
-  output.color = unpackColor(point.color);
+
+  if (uniforms.grayedMode > 0.5) {
+    output.color = vec4<f32>(0.6, 0.6, 0.6, 0.35);
+  } else {
+    output.color = unpackColor(point.color);
+  }
 
   output.pointCoord = (quadPosition + 1.0) * 0.5;
 

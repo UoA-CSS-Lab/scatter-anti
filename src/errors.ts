@@ -12,8 +12,6 @@ const categoryMap: Record<ErrorCode, ErrorCategory> = {
   PARQUET_LOAD_FAILED: 'data',
   QUERY_FAILED: 'query',
   LABEL_FETCH_FAILED: 'label',
-  LABEL_PARSE_FAILED: 'label',
-  NETWORK_ERROR: 'network',
 };
 
 /**
@@ -27,9 +25,7 @@ const severityMap: Record<ErrorCode, ErrorSeverity> = {
   DATA_LAYER_NOT_INITIALIZED: 'fatal',
   PARQUET_LOAD_FAILED: 'fatal',
   QUERY_FAILED: 'error',
-  NETWORK_ERROR: 'error',
   LABEL_FETCH_FAILED: 'warning',
-  LABEL_PARSE_FAILED: 'warning',
 };
 
 /**

@@ -9,13 +9,13 @@ import {
   useEffect,
   type ReactNode,
 } from 'react';
-import type { ScatterPlot, WhereCondition, Label, PointId, LabelIdentifier, GpuWhereCondition } from '@uoa-css-lab/duckscatter';
+import type { ScatterPlot, WhereCondition, Label, LabelIdentifier, GpuWhereCondition } from '@uoa-css-lab/duckscatter';
 
 interface ScatterPlotState {
   isInitialized: boolean;
   isLoading: boolean;
   error: string | null;
-  hoveredPoint: { row: unknown[]; columns: string[] } | null;
+  hoveredPoint: Record<string, unknown> | null;
   hoveredLabel: Label | null;
   pointCount: number | null;
   /** created_atカラムの範囲（min/max） */
@@ -23,7 +23,7 @@ interface ScatterPlotState {
 }
 
 export interface PointListItem {
-  id: string | number;
+  id: number;
   x: number;
   y: number;
 }
@@ -43,8 +43,10 @@ interface ScatterPlotContextValue {
   updatePointAlpha: (alpha: number) => void;
   /** グローバルサイズスケールを設定 */
   updatePointSizeScale: (scale: number) => void;
+  /** フィルター除外ポイントの表示モードを設定 */
+  updateFilteredPointDisplayMode: (mode: 'hidden' | 'grayed') => void;
   // Hover control
-  setPointHover: (pointId: PointId) => Promise<boolean>;
+  setPointHover: (pointId: number) => Promise<boolean>;
   setLabelHover: (identifier: LabelIdentifier) => boolean;
   clearAllHover: () => void;
   // List data
@@ -103,7 +105,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         canvas,
         dataUrl: '/output.parquet',
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           visiblePointLimit: filtersRef.current.visiblePointLimit,
@@ -187,7 +188,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.sizeSql = sizeSql;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql,
           colorSql: filtersRef.current.colorSql,
           whereConditions: buildWhereConditions(),
@@ -204,7 +204,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.colorSql = colorSql;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql,
           whereConditions: buildWhereConditions(),
@@ -221,7 +220,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.searchText = searchText;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           whereConditions: buildWhereConditions(),
@@ -238,7 +236,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
       filtersRef.current.visiblePointLimit = limit;
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           visiblePointLimit: limit,
@@ -251,7 +248,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
   );
 
   // Hover control methods
-  const setPointHover = useCallback(async (pointId: PointId): Promise<boolean> => {
+  const setPointHover = useCallback(async (pointId: number): Promise<boolean> => {
     if (!plotRef.current) return false;
     return await plotRef.current.setPointHover(pointId);
   }, []);
@@ -305,7 +302,6 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
 
       await plotRef.current.update({
         data: {
-          idColumn: '__index_level_0__',
           sizeSql: filtersRef.current.sizeSql,
           colorSql: filtersRef.current.colorSql,
           gpuWhereConditions: gpuConditions,
@@ -326,13 +322,18 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     plotRef.current.setPointSizeScale(scale);
   }, []);
 
+  const updateFilteredPointDisplayMode = useCallback((mode: 'hidden' | 'grayed') => {
+    if (!plotRef.current) return;
+    plotRef.current.setFilteredPointDisplayMode(mode);
+  }, []);
+
   // List data methods
   const fetchPoints = useCallback(
     async (page: number, pageSize: number): Promise<PointListItem[]> => {
       if (!plotRef.current) return [];
       const offset = page * pageSize;
       const result = await plotRef.current.runQuery(
-        `SELECT __index_level_0__ as id, x, y FROM parquet_data ORDER BY __index_level_0__ LIMIT ${pageSize} OFFSET ${offset}`
+        `SELECT rowid as id, x, y FROM parquet_data ORDER BY rowid LIMIT ${pageSize} OFFSET ${offset}`
       );
       if (!result || result.rowCount === 0) return [];
 
@@ -381,6 +382,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         updateTimeFilter,
         updatePointAlpha,
         updatePointSizeScale,
+        updateFilteredPointDisplayMode,
         setPointHover,
         setLabelHover,
         clearAllHover,

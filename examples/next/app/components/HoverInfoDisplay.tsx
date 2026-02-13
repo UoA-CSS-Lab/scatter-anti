@@ -13,12 +13,10 @@ export function HoverInfoDisplay({ mousePosition }: HoverInfoDisplayProps) {
   const formattedData = useMemo(() => {
     if (!state.hoveredPoint) return null;
 
-    const { row, columns } = state.hoveredPoint;
     const obj: Record<string, unknown> = {};
-    columns.forEach((col, i) => {
-      const val = row[i];
-      obj[col] = typeof val === 'bigint' ? Number(val) : val;
-    });
+    for (const [key, val] of Object.entries(state.hoveredPoint)) {
+      obj[key] = typeof val === 'bigint' ? Number(val) : val;
+    }
     return JSON.stringify(obj, null, 2);
   }, [state.hoveredPoint]);
 

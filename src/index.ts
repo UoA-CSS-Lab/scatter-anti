@@ -4,7 +4,7 @@
 
 export { ScatterPlot } from './scatter-plot.js';
 export type {
-  ColorRGBA,
+  Color4f,
   ScatterPlotOptions,
   Label,
   WhereCondition,
@@ -15,6 +15,7 @@ export type {
   StringOperator,
   // GPU filter types
   GpuWhereCondition,
+  FilteredPointDisplayMode,
   // Error handling types
   ErrorSeverity,
   ErrorCategory,
@@ -22,7 +23,6 @@ export type {
   ScatterPlotError,
   ScatterPlotEventMap,
   // Hover control types
-  PointId,
   LabelIdentifier,
   LabelHoverCallback,
 } from './types.js';

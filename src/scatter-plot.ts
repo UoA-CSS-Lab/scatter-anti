@@ -1,11 +1,12 @@
+import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
 import type {
   Label,
   ScatterPlotOptions,
   ScatterPlotEventMap,
   ScatterPlotError,
-  PointId,
   LabelIdentifier,
   GpuWhereCondition,
+  FilteredPointDisplayMode,
 } from './types.js';
 import { DataLayer, type ParquetData } from './data/index.js';
 import { GpuLayer } from './renderer/index.js';
@@ -28,6 +29,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
   private readonly dataUrl: string;
   private readonly labelUrl?: string;
+  private readonly onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
 
   /** GPUフィルターカラム名→インデックスのマッピング */
   private gpuFilterColumnMapping: Map<string, number> = new Map();
@@ -44,9 +46,9 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       colorSql: options.data.colorSql,
       whereConditions: options.data.whereConditions,
       gpuFilterColumns: options.data.gpuFilterColumns,
-      idColumn: options.data.idColumn,
       onError: (error) => this.emitError(error),
       onDataChanged: () => this.handleDataChanged(),
+      onVisibilityChanged: () => this.handleVisibilityChanged(),
     });
 
     this.gpuLayer = new GpuLayer({
@@ -60,7 +62,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       labelFontSize: options.labels?.fontSize,
       filterLambda: options.labels?.filterLambda,
       onLabelClick: options.labels?.onClick,
-      onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
+      onPointHover: options.interaction?.onPointHover,
       onLabelHover: options.interaction?.onLabelHover,
       hoverOutlineOptions: options.labels?.hoverOutlineOptions,
       dataLayer: this.dataLayer,
@@ -68,6 +70,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
     this.dataUrl = options.dataUrl;
     this.labelUrl = options.labels?.url;
+    this.onDatabaseReady = options.onDatabaseReady;
   }
 
   /**
@@ -75,16 +78,23 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async initialize(): Promise<void> {
     try {
-      const allPointsData = await this.dataLayer.initialize(this.dataUrl);
+      const allPointsData = await this.dataLayer.initialize(this.dataUrl, this.onDatabaseReady);
       await this.gpuLayer.initialize(allPointsData);
 
       const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
       if (gpuFilterData) {
-        this.gpuLayer.uploadFilterColumns(gpuFilterData.data, gpuFilterData.columnCount);
+        this.gpuLayer.uploadFilterColumns(gpuFilterData.data);
         this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
       }
 
-      this.labelLayer.initialize();
+      // 初期WHERE条件がある場合はビットフラグを設定
+      const visibilityData = await this.dataLayer.loadVisibilityFlags();
+      if (visibilityData) {
+        const hasWhereConditions = visibilityData.flags.some((word) => word !== 0xffffffff);
+        if (hasWhereConditions) {
+          this.gpuLayer.uploadVisibilityFlags(visibilityData.flags, true);
+        }
+      }
     } catch (e) {
       const error = this.categorizeInitError(e);
       this.emitError(error);
@@ -97,16 +107,49 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
-   * データ変更時のハンドラ（sizeSql, colorSql, whereConditions変更時）
+   * データ変更時のハンドラ（sizeSql, colorSql変更時）
    */
   private async handleDataChanged(): Promise<void> {
     try {
       const allPointsData = await this.dataLayer.loadAllPoints();
       this.gpuLayer.uploadAllPoints(allPointsData);
+      // WHERE条件があればビットフラグを再設定、なければクリア
+      const visibilityData = await this.dataLayer.loadVisibilityFlags();
+      if (visibilityData) {
+        const hasWhereConditions = visibilityData.flags.some((word) => word !== 0xffffffff);
+        if (hasWhereConditions) {
+          this.gpuLayer.uploadVisibilityFlags(visibilityData.flags, true);
+        } else {
+          this.gpuLayer.clearVisibilityFlags();
+        }
+      } else {
+        this.gpuLayer.clearVisibilityFlags();
+      }
       this.render();
     } catch (e) {
       this.emitError(
         createError('QUERY_FAILED', 'Failed to reload data after options change', {
+          cause: e instanceof Error ? e : undefined,
+        })
+      );
+    }
+  }
+
+  /**
+   * WHERE条件変更時のハンドラ（ビジビリティフラグのみ更新）
+   */
+  private async handleVisibilityChanged(): Promise<void> {
+    try {
+      const visibilityData = await this.dataLayer.loadVisibilityFlags();
+      if (visibilityData) {
+        this.gpuLayer.uploadVisibilityFlags(visibilityData.flags, true);
+      } else {
+        this.gpuLayer.clearVisibilityFlags();
+      }
+      this.render();
+    } catch (e) {
+      this.emitError(
+        createError('QUERY_FAILED', 'Failed to update visibility flags', {
           cause: e instanceof Error ? e : undefined,
         })
       );
@@ -221,7 +264,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (result.gpuFilterColumnsChanged) {
         const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
         if (gpuFilterData) {
-          this.gpuLayer.uploadFilterColumns(gpuFilterData.data, gpuFilterData.columnCount);
+          this.gpuLayer.uploadFilterColumns(gpuFilterData.data);
           this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
         } else {
           this.gpuFilterColumnMapping.clear();
@@ -231,6 +274,11 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (options.data.gpuWhereConditions !== undefined) {
         const conditions = this.convertGpuWhereConditions(options.data.gpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
+        this.dataLayer.setGpuFilterRanges(conditions);
+      }
+
+      if (options.data.filteredPointDisplayMode !== undefined) {
+        this.gpuLayer.setFilteredPointDisplayMode(options.data.filteredPointDisplayMode);
       }
     }
 
@@ -256,7 +304,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
     if (options.interaction !== undefined) {
       this.labelLayer.updateOptions({
-        onPointHover: (data) => this.handlePointHover(data, options.interaction?.onPointHover),
+        onPointHover: options.interaction?.onPointHover,
         onLabelHover: options.interaction.onLabelHover,
       });
     }
@@ -369,20 +417,6 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
-   * ラベルレイヤーからのポイントホバーイベントを処理する
-   * @param data ホバー中のポイントデータ（またはnull）
-   * @param userCallback ユーザー定義のコールバック
-   */
-  private handlePointHover(
-    data: { row: any[]; columns: string[] } | null,
-    userCallback?: any
-  ): void {
-    if (userCallback) {
-      userCallback(data);
-    }
-  }
-
-  /**
    * GpuWhereConditionをGpuLayer用の形式に変換する
    * @param conditions ユーザー指定のGPUフィルター条件
    * @returns GpuLayer用のフィルター条件配列
@@ -418,10 +452,10 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
 
   /**
    * IDを指定してプログラム的にポイントをホバー状態にする
-   * @param pointId ホバーするポイントのidColumn値
+   * @param pointId ホバーするポイントのrowid
    * @returns ポイントが見つかりホバーされた場合はtrue、そうでない場合はfalse
    */
-  async setPointHover(pointId: PointId): Promise<boolean> {
+  async setPointHover(pointId: number): Promise<boolean> {
     if (!this.dataLayer.isInitialized()) {
       return false;
     }
@@ -446,7 +480,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * 現在ホバー中のポイントデータを取得する
    * @returns ホバー中の場合はポイントデータ、そうでない場合はnull
    */
-  getHoveredPoint(): { row: any[]; columns: string[] } | null {
+  getHoveredPoint(): Record<string, any> | null {
     return this.labelLayer.getHoveredPoint();
   }
 
@@ -520,6 +554,23 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   getPointSizeScale(): number {
     return this.gpuLayer.getPointSizeScale();
+  }
+
+  /**
+   * フィルターされたポイントの表示モードを設定する
+   * @param mode 'hidden'（非表示）または 'grayed'（灰色表示）
+   */
+  setFilteredPointDisplayMode(mode: FilteredPointDisplayMode): void {
+    this.gpuLayer.setFilteredPointDisplayMode(mode);
+    this.render();
+  }
+
+  /**
+   * 現在のフィルター表示モードを取得する
+   * @returns 現在のフィルター表示モード
+   */
+  getFilteredPointDisplayMode(): FilteredPointDisplayMode {
+    return this.gpuLayer.getFilteredPointDisplayMode();
   }
 
   /**

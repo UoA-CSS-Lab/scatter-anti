@@ -38,16 +38,14 @@ export function PointList() {
     if (page < totalPages - 1) setPage(page + 1);
   };
 
-  const handlePointClick = async (id: string | number) => {
+  const handlePointClick = async (id: number) => {
     await setPointHover(id);
   };
 
   // Check if a point is currently hovered
-  const isHovered = (id: string | number) => {
+  const isHovered = (id: number) => {
     if (!state.hoveredPoint) return false;
-    const idIdx = state.hoveredPoint.columns.indexOf('__index_level_0__');
-    if (idIdx === -1) return false;
-    return state.hoveredPoint.row[idIdx] === id;
+    return state.hoveredPoint['rowid'] === id;
   };
 
   if (!state.isInitialized) {
@@ -71,7 +69,7 @@ export function PointList() {
                 isHovered(point.id) ? 'bg-blue-100 font-medium' : ''
               }`}
             >
-              <span className="text-zinc-500">#{point.id}</span>{' '}
+              <span className="text-zinc-500">rowid:{point.id}</span>{' '}
               <span className="text-zinc-700">
                 ({point.x.toFixed(2)}, {point.y.toFixed(2)})
               </span>

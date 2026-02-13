@@ -1,11 +1,10 @@
+import type { AsyncDuckDBConnection } from '@duckdb/duckdb-wasm';
+
 /**
  * duckscatterライブラリの型定義
  */
 export type LabelFilterLambda = (properties: Record<string, any>) => boolean;
-export type PointHoverCallback = (data: { row: any[]; columns: string[] } | null) => void;
-
-/** ポイント識別子の型（idColumnの値） */
-export type PointId = string | number;
+export type PointHoverCallback = (data: Record<string, any> | null) => void;
 
 /** プログラムによるホバー制御用のラベル識別子 */
 export interface LabelIdentifier {
@@ -18,7 +17,7 @@ export interface LabelIdentifier {
 /** ラベルがホバーされた時に発火するコールバック */
 export type LabelHoverCallback = (label: Label | null) => void;
 
-export interface ColorRGBA {
+export interface Color4f {
   r: number; // 0-1
   g: number; // 0-1
   b: number; // 0-1
@@ -95,32 +94,29 @@ export interface GpuWhereCondition {
   max?: number;
 }
 
+/** フィルターされたポイントの表示モード */
+export type FilteredPointDisplayMode = 'hidden' | 'grayed';
+
 export interface DataOptions {
   /** レンダリングする表示ポイントの最大数 */
   visiblePointLimit?: number;
-
   /** ポイントサイズ用のSQL式（例: "LOG(favorite_count + 1) * 2 + 2"） */
   sizeSql?: string;
-
   /** ポイントカラー用のSQL式（ARGB 32bit整数、例: "0xFF0000FF"） */
   colorSql?: string;
-
   /** データをフィルタリングするWHERE条件（ANDのみ） */
   whereConditions?: WhereCondition[];
-
   /** GPUでフィルタリングするカラム名 (最大4つ) */
   gpuFilterColumns?: string[];
-
   /** GPU側で実行するフィルター条件 */
   gpuWhereConditions?: GpuWhereCondition[];
-
-  /** ポイントを識別するカラム名 */
-  idColumn: string;
+  /** フィルターされたポイントの表示モード（デフォルト: 'hidden'） */
+  filteredPointDisplayMode?: FilteredPointDisplayMode;
 }
 
 export interface GpuOptions {
   /** 背景色（デフォルト: 透明な黒） */
-  backgroundColor?: ColorRGBA;
+  backgroundColor?: Color4f;
   /** グローバル透明度 (0.0-1.0, デフォルト: 1.0) */
   pointAlpha?: number;
   /** グローバルサイズスケール (デフォルト: 1.0) */
@@ -130,16 +126,12 @@ export interface GpuOptions {
 export interface LabelOptions {
   /** ラベルGeoJSONデータを取得するURL（初期化時に自動ロード） */
   url?: string;
-
   /** ラベルのフォントサイズ（ピクセル単位、デフォルト: 12） */
   fontSize?: number;
-
   /** プロパティに基づいてラベルの表示を制御するフィルター関数 */
   filterLambda?: LabelFilterLambda;
-
   /** ラベルがクリックされた時に発火するコールバック */
   onClick?: (label: Label) => void;
-
   /** ポイントホバーアウトラインの外観オプション */
   hoverOutlineOptions?: HoverOutlineOptions;
 }
@@ -154,21 +146,18 @@ export interface InteractionOptions {
 export interface ScatterPlotOptions {
   /** レンダリング先のCanvas要素 */
   canvas: HTMLCanvasElement;
-
   /** Parquetデータを取得するURL */
   dataUrl: string;
-
   /** データレイヤーオプション */
   data: DataOptions;
-
   /** GPUレンダリングオプション */
   gpu?: GpuOptions;
-
   /** ラベルレイヤーオプション */
   labels?: LabelOptions;
-
   /** インタラクションコールバック */
   interaction?: InteractionOptions;
+  /** DB接続・データロード後に呼ばれるコールバック（ALTER TABLE等のSQL操作用） */
+  onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
 }
 
 /**
@@ -179,7 +168,7 @@ export interface ScatterPlotOptions {
 export type ErrorSeverity = 'fatal' | 'error' | 'warning';
 
 /** エラーカテゴリ */
-export type ErrorCategory = 'webgpu' | 'data' | 'label' | 'query' | 'network';
+export type ErrorCategory = 'webgpu' | 'data' | 'label' | 'query';
 
 /** すべての可能なエラーのエラーコード */
 export type ErrorCode =
@@ -190,9 +179,7 @@ export type ErrorCode =
   | 'DATA_LAYER_NOT_INITIALIZED'
   | 'PARQUET_LOAD_FAILED'
   | 'QUERY_FAILED'
-  | 'LABEL_FETCH_FAILED'
-  | 'LABEL_PARSE_FAILED'
-  | 'NETWORK_ERROR';
+  | 'LABEL_FETCH_FAILED';
 
 /** エラーイベントペイロード */
 export interface ScatterPlotError {
