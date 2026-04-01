@@ -4,6 +4,7 @@ import { createParquetReader } from './repository.js';
 import type { WhereCondition, ScatterPlotError } from '../types.js';
 import { createError } from '../errors.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
+import { SpatialPointIndex } from './spatial-index.js';
 
 /**
  * DataLayerの設定オプション
@@ -72,6 +73,8 @@ export class DataLayer {
   private filterColumnData = new Float32Array(0);
   /** 現在のGPUフィルターレンジ（スライダーで高頻度更新） */
   private gpuFilterRanges: { columnIndex: number; min: number; max: number }[] = [];
+  /** 空間ポイントインデックス（四分木ベース） */
+  private spatialIndex = new SpatialPointIndex();
 
   /**
    * DataLayerインスタンスを作成する
@@ -182,6 +185,7 @@ export class DataLayer {
       }
 
       this.pointsCache = { xArr, yArr, length: rowCount };
+      this.spatialIndex.build(xArr, yArr, rowCount);
 
       return {
         instanceData: floatView,
@@ -422,8 +426,7 @@ export class DataLayer {
     aspectRatio: number,
     thresholdPixels: number = 10
   ): Promise<Record<string, any> | null> {
-    const { xArr, yArr, length } = this.pointsCache;
-    if (length === 0) {
+    if (!this.spatialIndex.isBuilt()) {
       return null;
     }
 
@@ -437,39 +440,14 @@ export class DataLayer {
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
     const thresholdWorldSq = thresholdWorld * thresholdWorld;
 
-    let nearestRowid: number | null = null;
-    let nearestDistanceSq = Infinity;
-
-    const checkVisibility = this.visibilityFlags.length > 0;
-    const checkGpuFilter = this.filterColumnData.length > 0 && this.gpuFilterRanges.length > 0;
-
-    for (let i = 0; i < length; i++) {
-      if (checkVisibility) {
-        if ((this.visibilityFlags[i >> 5] & (1 << (i & 31))) === 0) continue;
-      }
-
-      if (checkGpuFilter) {
-        const base = i * 4;
-        let skip = false;
-        for (const r of this.gpuFilterRanges) {
-          const v = this.filterColumnData[base + r.columnIndex];
-          if (v < r.min || v > r.max) {
-            skip = true;
-            break;
-          }
-        }
-        if (skip) continue;
-      }
-
-      const dx = xArr[i] - worldX;
-      const dy = yArr[i] - worldY;
-      const distanceSq = dx * dx + dy * dy;
-
-      if (distanceSq < nearestDistanceSq && distanceSq <= thresholdWorldSq) {
-        nearestDistanceSq = distanceSq;
-        nearestRowid = i;
-      }
-    }
+    const nearestRowid = this.spatialIndex.findNearest(
+      worldX,
+      worldY,
+      thresholdWorldSq,
+      this.visibilityFlags,
+      this.filterColumnData,
+      this.gpuFilterRanges
+    );
 
     if (nearestRowid == null) {
       return null;
@@ -513,6 +491,7 @@ export class DataLayer {
    * リソースをクリーンアップする
    */
   async destroy(): Promise<void> {
+    this.spatialIndex.destroy();
     if (this.repository) {
       await this.repository.close();
       this.repository = null;
