@@ -32,6 +32,8 @@ interface ScatterPlotContextValue {
   plot: ScatterPlot | null;
   state: ScatterPlotState;
   initializePlot: (canvas: HTMLCanvasElement) => Promise<void>;
+  /** ローカルのParquetファイルを読み込んでプロットを再初期化する */
+  loadDataFile: (file: File) => Promise<void>;
   updateSize: (sizeSql: string) => Promise<void>;
   updateColor: (colorSql: string) => Promise<void>;
   updateSearch: (searchText: string) => Promise<void>;
@@ -58,6 +60,7 @@ const ScatterPlotContext = createContext<ScatterPlotContextValue | null>(null);
 
 export function ScatterPlotProvider({ children }: { children: ReactNode }) {
   const plotRef = useRef<ScatterPlot | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [state, setState] = useState<ScatterPlotState>({
     isInitialized: false,
     isLoading: false,
@@ -99,6 +102,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
     async (canvas: HTMLCanvasElement) => {
       const { ScatterPlot } = await import('@uoa-css-lab/duckscatter');
 
+      canvasRef.current = canvas;
       setState((s) => ({ ...s, isLoading: true, error: null }));
 
       const plot = new ScatterPlot({
@@ -176,6 +180,85 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
           ...s,
           isLoading: false,
           error: e instanceof Error ? e.message : 'Failed to initialize',
+        }));
+      }
+    },
+    []
+  );
+
+  const loadDataFile = useCallback(
+    async (file: File) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      // 既存のプロットを破棄
+      if (plotRef.current) {
+        await plotRef.current.destroy();
+        plotRef.current = null;
+      }
+
+      const { ScatterPlot } = await import('@uoa-css-lab/duckscatter');
+
+      setState((s) => ({
+        ...s,
+        isInitialized: false,
+        isLoading: true,
+        error: null,
+        pointCount: null,
+        timeRange: null,
+      }));
+
+      const plot = new ScatterPlot({
+        canvas,
+        dataFile: file,
+        data: {
+          sizeSql: filtersRef.current.sizeSql,
+          colorSql: filtersRef.current.colorSql,
+          visiblePointLimit: filtersRef.current.visiblePointLimit,
+        },
+        gpu: {
+          backgroundColor: { r: 0.85, g: 0.85, b: 0.85, a: 1.0 },
+        },
+        interaction: {
+          onPointHover: (data) => {
+            setState((s) => ({ ...s, hoveredPoint: data }));
+          },
+          onLabelHover: (label) => {
+            setState((s) => ({ ...s, hoveredLabel: label }));
+          },
+        },
+      });
+
+      plot.on('error', (error) => {
+        setState((s) => ({ ...s, error: error.message }));
+      });
+
+      try {
+        await plot.initialize();
+        plotRef.current = plot;
+        plot.render();
+
+        const result = await plot.runQuery('SELECT COUNT(*) as count FROM parquet_data');
+        let pointCount = 0;
+        if (result && result.rowCount > 0) {
+          const countCol = result.columnData.get('count');
+          if (countCol) {
+            pointCount = Number(countCol[0]);
+          }
+        }
+
+        setState((s) => ({
+          ...s,
+          isInitialized: true,
+          isLoading: false,
+          pointCount,
+          timeRange: null,
+        }));
+      } catch (e) {
+        setState((s) => ({
+          ...s,
+          isLoading: false,
+          error: e instanceof Error ? e.message : 'Failed to load file',
         }));
       }
     },
@@ -374,6 +457,7 @@ export function ScatterPlotProvider({ children }: { children: ReactNode }) {
         plot: plotRef.current,
         state,
         initializePlot,
+        loadDataFile,
         updateSize,
         updateColor,
         updateSearch,

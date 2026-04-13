@@ -27,8 +27,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   private gpuLayer: GpuLayer;
   private labelLayer: LabelLayer;
 
-  private readonly dataUrl: string;
-  private readonly labelUrl?: string;
+  private readonly dataSource: string | File | ArrayBuffer;
+  private readonly labelSource?: string | File | ArrayBuffer;
   private readonly onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
 
   /** GPUフィルターカラム名→インデックスのマッピング */
@@ -68,8 +68,12 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       dataLayer: this.dataLayer,
     });
 
-    this.dataUrl = options.dataUrl;
-    this.labelUrl = options.labels?.url;
+    const dataSource = options.dataFile ?? options.dataUrl;
+    if (!dataSource) {
+      throw new Error('Either dataUrl or dataFile must be provided.');
+    }
+    this.dataSource = dataSource;
+    this.labelSource = options.labels?.file ?? options.labels?.url;
     this.onDatabaseReady = options.onDatabaseReady;
   }
 
@@ -78,7 +82,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async initialize(): Promise<void> {
     try {
-      const allPointsData = await this.dataLayer.initialize(this.dataUrl, this.onDatabaseReady);
+      const allPointsData = await this.dataLayer.initialize(this.dataSource, this.onDatabaseReady);
       await this.gpuLayer.initialize(allPointsData);
 
       const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
@@ -101,8 +105,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       return;
     }
 
-    if (this.labelUrl) {
-      await this.loadLabelsFromUrl(this.labelUrl);
+    if (this.labelSource) {
+      await this.loadLabelSource(this.labelSource);
     }
   }
 
@@ -150,6 +154,38 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     } catch (e) {
       this.emitError(
         createError('QUERY_FAILED', 'Failed to update visibility flags', {
+          cause: e instanceof Error ? e : undefined,
+        })
+      );
+    }
+  }
+
+  /**
+   * ラベルデータをURL、File、またはArrayBufferから読み込む
+   * @param source ラベルデータのソース
+   */
+  private async loadLabelSource(source: string | File | ArrayBuffer): Promise<void> {
+    if (typeof source === 'string') {
+      await this.loadLabelsFromUrl(source);
+    } else {
+      await this.loadLabelsFromBuffer(source);
+    }
+  }
+
+  /**
+   * File/ArrayBufferからラベルデータを読み込む
+   * @param source GeoJSONファイルのバイナリデータ
+   */
+  private async loadLabelsFromBuffer(source: File | ArrayBuffer): Promise<void> {
+    try {
+      const buffer = source instanceof File ? await source.arrayBuffer() : source;
+      const text = new TextDecoder().decode(buffer);
+      const labelData = JSON.parse(text);
+      this.loadLabels(labelData);
+      await this.dataLayer.loadLabelData(labelData);
+    } catch (e) {
+      this.emitError(
+        createError('LABEL_FETCH_FAILED', 'Failed to parse label file', {
           cause: e instanceof Error ? e : undefined,
         })
       );
@@ -297,8 +333,9 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         hoverOutlineOptions: options.labels.hoverOutlineOptions,
       });
 
-      if (options.labels.url !== undefined) {
-        await this.loadLabelsFromUrl(options.labels.url);
+      const labelSource = options.labels.file ?? options.labels.url;
+      if (labelSource !== undefined) {
+        await this.loadLabelSource(labelSource);
       }
     }
 

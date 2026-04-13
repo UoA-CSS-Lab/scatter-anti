@@ -55,8 +55,19 @@ export class ParquetReader {
 
     const response = await fetch(url);
     const arrayBuffer = await response.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
+    await this.loadParquetFromBuffer(arrayBuffer);
+  }
 
+  /**
+   * ArrayBufferからParquetデータを読み込み、テーブルを作成する
+   * @param buffer Parquetファイルのバイナリデータ
+   */
+  async loadParquetFromBuffer(buffer: ArrayBuffer): Promise<void> {
+    if (!this.conn) {
+      throw new Error(ERROR_DB_NOT_INITIALIZED);
+    }
+
+    const uint8Array = new Uint8Array(buffer);
     await this.db!.registerFileBuffer('temp.parquet', uint8Array);
     await this.conn.query(
       `CREATE TABLE IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
