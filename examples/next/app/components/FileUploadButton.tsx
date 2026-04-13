@@ -26,18 +26,15 @@ export function FileUploadButton() {
     setGeojsonName(file.name);
     const text = await file.text();
     const geojson = JSON.parse(text);
-    state.isInitialized && (await loadLabelData(geojson));
+    if (state.isInitialized && plot) {
+      plot.loadLabels(geojson as Record<string, unknown>);
+    }
     if (geojsonInputRef.current) {
       geojsonInputRef.current.value = '';
     }
   };
 
   const { plot } = useScatterPlot();
-
-  const loadLabelData = async (geojson: any) => {
-    if (!plot) return;
-    plot.loadLabels(geojson);
-  };
 
   return (
     <div className="flex flex-col gap-2">
