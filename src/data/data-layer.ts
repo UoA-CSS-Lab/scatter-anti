@@ -92,15 +92,20 @@ export class DataLayer {
 
   /**
    * データレイヤーを初期化し、データを読み込む
-   * @param dataUrl Parquetファイルのurl
+   * @param source ParquetファイルのURL、またはArrayBuffer/File
    * @returns 処理済みの全データ
    */
   async initialize(
-    dataUrl: string,
+    source: string | ArrayBuffer | File,
     onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>
   ): Promise<AllPointsData> {
     this.repository = await createParquetReader();
-    await this.repository.loadParquetFromUrl(dataUrl);
+    if (typeof source === 'string') {
+      await this.repository.loadParquetFromUrl(source);
+    } else {
+      const buffer = source instanceof File ? await source.arrayBuffer() : source;
+      await this.repository.loadParquetFromBuffer(buffer);
+    }
     if (onDatabaseReady) {
       await onDatabaseReady(this.repository.getConnection());
     }

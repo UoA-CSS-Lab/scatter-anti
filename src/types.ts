@@ -126,6 +126,8 @@ export interface GpuOptions {
 export interface LabelOptions {
   /** ラベルGeoJSONデータを取得するURL（初期化時に自動ロード） */
   url?: string;
+  /** ローカルのGeoJSONファイル（FileまたはArrayBuffer） */
+  file?: File | ArrayBuffer;
   /** ラベルのフォントサイズ（ピクセル単位、デフォルト: 12） */
   fontSize?: number;
   /** プロパティに基づいてラベルの表示を制御するフィルター関数 */
@@ -147,7 +149,9 @@ export interface ScatterPlotOptions {
   /** レンダリング先のCanvas要素 */
   canvas: HTMLCanvasElement;
   /** Parquetデータを取得するURL */
-  dataUrl: string;
+  dataUrl?: string;
+  /** ローカルのParquetファイル（FileまたはArrayBuffer） */
+  dataFile?: File | ArrayBuffer;
   /** データレイヤーオプション */
   data: DataOptions;
   /** GPUレンダリングオプション */
