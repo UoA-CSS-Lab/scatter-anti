@@ -70,7 +70,7 @@ export class ParquetReader {
     const uint8Array = new Uint8Array(buffer);
     await this.db!.registerFileBuffer('temp.parquet', uint8Array);
     await this.conn.query(
-      `CREATE TABLE IF NOT EXISTS parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
+      `CREATE OR REPLACE TABLE parquet_data AS SELECT * FROM read_parquet('temp.parquet')`
     );
     await this.db!.dropFile('temp.parquet');
   }
@@ -124,7 +124,7 @@ export class ParquetReader {
 
     await this.db!.registerFileText('label_data.json', JSON.stringify(values));
     await this.conn.query(
-      `CREATE TABLE IF NOT EXISTS label_data AS SELECT * FROM read_json_auto('label_data.json')`
+      `CREATE OR REPLACE TABLE label_data AS SELECT * FROM read_json_auto('label_data.json')`
     );
     await this.db!.dropFile('label_data.json');
   }
