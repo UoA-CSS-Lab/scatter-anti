@@ -22,6 +22,10 @@ export interface GpuLayerOptions {
   backgroundColor?: Color4f;
   /** 表示可能なポイントの最大数（デフォルト: 5000000） */
   visiblePointLimit?: number;
+  /** グローバル透明度 (0.0-1.0, デフォルト: 1.0) */
+  pointAlpha?: number;
+  /** グローバルサイズスケール (デフォルト: 1.0) */
+  pointSizeScale?: number;
 }
 
 // ビューポート境界のマージン（クリップ空間）
@@ -126,6 +130,8 @@ export class GpuLayer {
     this.context = new WebGPUContext();
     this.backgroundColor = options.backgroundColor ?? { r: 0, g: 0, b: 0, a: 0 };
     this.visiblePointLimit = options.visiblePointLimit ?? 5000000;
+    this.pointAlpha = Math.max(0, Math.min(1, options.pointAlpha ?? 1.0));
+    this.pointSizeScale = Math.max(0.01, options.pointSizeScale ?? 1.0);
   }
 
   /**
@@ -784,6 +790,8 @@ export class GpuLayer {
    * GPUレイヤーの設定オプションを更新する
    */
   updateOptions(options: Partial<GpuLayerOptions>): void {
+    let needsUniformUpdate = false;
+
     if (options.backgroundColor !== undefined) {
       this.backgroundColor = options.backgroundColor;
     }
@@ -791,6 +799,19 @@ export class GpuLayer {
       this.visiblePointLimit = options.visiblePointLimit;
       // LOD閾値が変わるのでフィルタ結果を無効化
       this.filterResultValid = false;
+      needsUniformUpdate = true;
+    }
+    if (options.pointAlpha !== undefined) {
+      this.pointAlpha = Math.max(0, Math.min(1, options.pointAlpha));
+      needsUniformUpdate = true;
+    }
+    if (options.pointSizeScale !== undefined) {
+      this.pointSizeScale = Math.max(0.01, options.pointSizeScale);
+      needsUniformUpdate = true;
+    }
+
+    if (needsUniformUpdate) {
+      this.updateUniforms();
     }
   }
 

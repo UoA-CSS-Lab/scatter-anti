@@ -30,6 +30,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   private readonly dataSource: string | File | ArrayBuffer;
   private readonly labelSource?: string | File | ArrayBuffer;
   private readonly onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
+  private readonly initialGpuWhereConditions?: GpuWhereCondition[];
+  private readonly initialFilteredPointDisplayMode?: FilteredPointDisplayMode;
 
   /** GPUフィルターカラム名→インデックスのマッピング */
   private gpuFilterColumnMapping: Map<string, number> = new Map();
@@ -55,6 +57,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       canvas: options.canvas,
       backgroundColor: options.gpu?.backgroundColor,
       visiblePointLimit: options.data.visiblePointLimit,
+      pointAlpha: options.gpu?.pointAlpha,
+      pointSizeScale: options.gpu?.pointSizeScale,
     });
 
     this.labelLayer = new LabelLayer({
@@ -75,6 +79,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     this.dataSource = dataSource;
     this.labelSource = options.labels?.file ?? options.labels?.url;
     this.onDatabaseReady = options.onDatabaseReady;
+    this.initialGpuWhereConditions = options.data.gpuWhereConditions;
+    this.initialFilteredPointDisplayMode = options.data.filteredPointDisplayMode;
   }
 
   /**
@@ -89,6 +95,16 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (gpuFilterData) {
         this.gpuLayer.uploadFilterColumns(gpuFilterData.data);
         this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
+      }
+
+      if (this.initialGpuWhereConditions !== undefined) {
+        const conditions = this.convertGpuWhereConditions(this.initialGpuWhereConditions);
+        this.gpuLayer.setGpuFilterConditions(conditions);
+        this.dataLayer.setGpuFilterRanges(conditions);
+      }
+
+      if (this.initialFilteredPointDisplayMode !== undefined) {
+        this.gpuLayer.setFilteredPointDisplayMode(this.initialFilteredPointDisplayMode);
       }
 
       // 初期WHERE条件がある場合はビットフラグを設定
@@ -290,7 +306,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
     if (options.data !== undefined) {
-      const result = this.dataLayer.updateOptions({
+      const result = await this.dataLayer.updateOptions({
         sizeSql: options.data.sizeSql,
         colorSql: options.data.colorSql,
         whereConditions: options.data.whereConditions,
@@ -322,6 +338,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       this.gpuLayer.updateOptions({
         backgroundColor: options.gpu?.backgroundColor,
         visiblePointLimit: options.data?.visiblePointLimit,
+        pointAlpha: options.gpu?.pointAlpha,
+        pointSizeScale: options.gpu?.pointSizeScale,
       });
     }
 

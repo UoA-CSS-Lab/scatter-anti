@@ -21,9 +21,9 @@ export interface DataLayerOptions {
   /** エラーをScatterPlotに通知するためのコールバック */
   onError?: (error: ScatterPlotError) => void;
   /** データ変更時に呼び出されるコールバック */
-  onDataChanged?: () => void;
+  onDataChanged?: () => void | Promise<void>;
   /** WHERE条件変更時にビジビリティフラグ更新が必要な場合のコールバック */
-  onVisibilityChanged?: () => void;
+  onVisibilityChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -56,9 +56,9 @@ export class DataLayer {
   /** エラー通知用コールバック */
   private onError?: (error: ScatterPlotError) => void;
   /** データ変更通知用コールバック */
-  private onDataChanged?: () => void;
+  private onDataChanged?: () => void | Promise<void>;
   /** WHERE条件変更時のビジビリティ更新コールバック */
-  private onVisibilityChanged?: () => void;
+  private onVisibilityChanged?: () => void | Promise<void>;
 
   /** 全ポイントデータのキャッシュ（ポイント検索用、SoA形式） */
   private pointsCache: PointsCache = {
@@ -351,9 +351,9 @@ export class DataLayer {
    * @param options 更新する設定オプション
    * @returns 変更の種類を示すオブジェクト
    */
-  updateOptions(options: Partial<DataLayerOptions>): {
+  async updateOptions(options: Partial<DataLayerOptions>): Promise<{
     gpuFilterColumnsChanged: boolean;
-  } {
+  }> {
     let needsFullReload = false;
     let needsVisibilityUpdate = false;
     let gpuFilterColumnsChanged = false;
@@ -391,9 +391,9 @@ export class DataLayer {
     }
 
     if (needsFullReload && this.onDataChanged) {
-      this.onDataChanged();
+      await this.onDataChanged();
     } else if (needsVisibilityUpdate && this.onVisibilityChanged) {
-      this.onVisibilityChanged();
+      await this.onVisibilityChanged();
     }
 
     return { gpuFilterColumnsChanged };
