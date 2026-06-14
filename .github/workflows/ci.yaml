@@ -11,11 +11,25 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NPM_CONFIG_REGISTRY: https://npm.flatt.tech/
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 20
+      - name: Setup Takumi Guard (npm)
+        uses: flatt-security/setup-takumi-guard-npm@v1
+      - name: Verify npm registry is Takumi Guard
+        run: |
+          actual="$(npm config get registry)"
+          echo "registry=$actual"
+          if [ "$actual" != "https://npm.flatt.tech/" ]; then
+            echo "::error::npm is not routed through Takumi Guard (registry=$actual)"
+            exit 1
+          fi
       - uses: actions/cache@v5
         with:
           path: "**/node_modules"
