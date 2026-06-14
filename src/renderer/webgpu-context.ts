@@ -64,7 +64,7 @@ export class WebGPUContext {
     try {
       this.device = await adapter.requestDevice();
     } catch (e) {
-      throw new Error(`Failed to get GPU device: ${e}`);
+      throw new Error(`Failed to get GPU device: ${e}`, { cause: e });
     }
 
     if (!this.device) {
