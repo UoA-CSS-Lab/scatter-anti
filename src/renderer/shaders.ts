@@ -200,19 +200,63 @@ struct Uniforms {
   pointAlpha: f32,
   pointSizeScale: f32,
   grayedMode: f32,
-  _padding2: f32,
-  _padding3: f32,
+  // --- per-column soft-edge フェード（gpuWhereConditions.fade）---
+  // 2bit/列: bit(2c)=min端をフェード, bit(2c+1)=max端をフェード
+  fadeEdgeFlags: u32,
+  _fadePad: u32,
+  filterRangeMin: vec4<f32>,  // フィルタ下端（= フェード窓の下端）
+  filterRangeMax: vec4<f32>,  // フィルタ上端（= フェード窓の上端）
+  fadeWidth: vec4<f32>,       // 列ごとの端ランプ幅（0 = フェード無効）
 }
 
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
   @location(0) color: vec4<f32>,
   @location(1) pointCoord: vec2<f32>,
+  @location(2) fadeAlpha: f32,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var<storage, read> allPoints: array<Point>;
 @group(0) @binding(2) var<storage, read> visibleIndices: array<u32>;
+@group(0) @binding(3) var<storage, read> filterColumns: array<vec4<f32>>;
+
+// 1列ぶんの soft-edge フェード係数。width<=0 で 1.0（無効）。
+// fadeMin/fadeMax はそれぞれ下端/上端でランプするか。無限端は clamp により自動で 1.0。
+fn fadeForColumn(t: f32, lo: f32, hi: f32, width: f32, fadeMin: bool, fadeMax: bool) -> f32 {
+  if (width <= 0.0) {
+    return 1.0;
+  }
+  var a: f32 = 1.0;
+  if (fadeMin) {
+    a = a * clamp((t - lo) / width, 0.0, 1.0);
+  }
+  if (fadeMax) {
+    a = a * clamp((hi - t) / width, 0.0, 1.0);
+  }
+  return a;
+}
+
+// gpuWhereConditions.fade に基づく per-point の alpha フェード係数。
+// 各列の値を filterColumns から読み、フィルタ範囲 [min,max] の端でランプする。
+// どの列もフェード無し（fadeEdgeFlags==0）なら filterColumns を読まず即 1.0。
+fn computeFadeAlpha(pointIdx: u32) -> f32 {
+  let flags = uniforms.fadeEdgeFlags;
+  if (flags == 0u) {
+    return 1.0;
+  }
+  let fc = filterColumns[pointIdx];
+  var a: f32 = 1.0;
+  a = a * fadeForColumn(fc.x, uniforms.filterRangeMin.x, uniforms.filterRangeMax.x,
+                        uniforms.fadeWidth.x, (flags & 1u) != 0u, (flags & 2u) != 0u);
+  a = a * fadeForColumn(fc.y, uniforms.filterRangeMin.y, uniforms.filterRangeMax.y,
+                        uniforms.fadeWidth.y, (flags & 4u) != 0u, (flags & 8u) != 0u);
+  a = a * fadeForColumn(fc.z, uniforms.filterRangeMin.z, uniforms.filterRangeMax.z,
+                        uniforms.fadeWidth.z, (flags & 16u) != 0u, (flags & 32u) != 0u);
+  a = a * fadeForColumn(fc.w, uniforms.filterRangeMin.w, uniforms.filterRangeMax.w,
+                        uniforms.fadeWidth.w, (flags & 64u) != 0u, (flags & 128u) != 0u);
+  return a;
+}
 
 fn unpackColor(argb: u32) -> vec4<f32> {
   let a = f32((argb >> 24u) & 0xFFu) / 255.0;
@@ -253,6 +297,7 @@ fn vertexMain(
   }
 
   output.pointCoord = (quadPosition + 1.0) * 0.5;
+  output.fadeAlpha = computeFadeAlpha(pointIdx);
 
   return output;
 }
@@ -268,6 +313,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
 
   let alpha = smoothstep(0.25, 0.23, distSq);
 
-  return vec4<f32>(input.color.rgb, input.color.a * alpha * uniforms.pointAlpha);
+  return vec4<f32>(input.color.rgb, input.color.a * alpha * uniforms.pointAlpha * input.fadeAlpha);
 }
 `;

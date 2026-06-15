@@ -476,16 +476,30 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param conditions ユーザー指定のGPUフィルター条件
    * @returns GpuLayer用のフィルター条件配列
    */
-  private convertGpuWhereConditions(
-    conditions: GpuWhereCondition[]
-  ): { columnIndex: number; min: number; max: number }[] {
+  private convertGpuWhereConditions(conditions: GpuWhereCondition[]): {
+    columnIndex: number;
+    min: number;
+    max: number;
+    fade?: { width: number; edges: 'both' | 'min' | 'max' };
+  }[] {
     return conditions
       .filter((c) => this.gpuFilterColumnMapping.has(c.column))
-      .map((c) => ({
-        columnIndex: this.gpuFilterColumnMapping.get(c.column)!,
-        min: c.min ?? -Infinity,
-        max: c.max ?? Infinity,
-      }));
+      .map((c) => {
+        const converted: {
+          columnIndex: number;
+          min: number;
+          max: number;
+          fade?: { width: number; edges: 'both' | 'min' | 'max' };
+        } = {
+          columnIndex: this.gpuFilterColumnMapping.get(c.column)!,
+          min: c.min ?? -Infinity,
+          max: c.max ?? Infinity,
+        };
+        if (c.fade && c.fade.width > 0) {
+          converted.fade = { width: c.fade.width, edges: c.fade.edges ?? 'both' };
+        }
+        return converted;
+      });
   }
 
   /**

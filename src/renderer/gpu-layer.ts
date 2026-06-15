@@ -82,8 +82,13 @@ export class GpuLayer {
   /** フィルター済みポイント用レンダリングユニフォームバッファ */
   private filteredRenderUniformBuffer: GPUBuffer | null = null;
 
-  /** GPUフィルター条件 */
-  private gpuFilterConditions: { columnIndex: number; min: number; max: number }[] = [];
+  /** GPUフィルター条件（range + optional soft-edge fade） */
+  private gpuFilterConditions: {
+    columnIndex: number;
+    min: number;
+    max: number;
+    fade?: { width: number; edges: 'both' | 'min' | 'max' };
+  }[] = [];
   /** WHERE条件フィルタが有効かどうか */
   private whereFilterEnabled: boolean = false;
 
@@ -278,7 +283,7 @@ export class GpuLayer {
     this.context.device.queue.writeBuffer(this.indexBuffer, 0, indices);
 
     this.renderUniformBuffer = this.context.device.createBuffer({
-      size: 96,
+      size: 144,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -304,7 +309,7 @@ export class GpuLayer {
     });
 
     this.filteredRenderUniformBuffer = this.context.device.createBuffer({
-      size: 96,
+      size: 144,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -389,6 +394,7 @@ export class GpuLayer {
         { binding: 0, resource: { buffer: this.renderUniformBuffer } },
         { binding: 1, resource: { buffer: this.allPointsBuffer } },
         { binding: 2, resource: { buffer: this.visibleIndicesBuffer } },
+        { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
       ],
     });
 
@@ -398,6 +404,7 @@ export class GpuLayer {
         { binding: 0, resource: { buffer: this.filteredRenderUniformBuffer } },
         { binding: 1, resource: { buffer: this.allPointsBuffer } },
         { binding: 2, resource: { buffer: this.filteredIndicesBuffer } },
+        { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
       ],
     });
   }
@@ -546,23 +553,67 @@ export class GpuLayer {
 
     const viewMatrix = this.createViewMatrix();
 
-    const renderUniformData = new Float32Array(24);
-    renderUniformData.set(viewMatrix, 0);
+    // GPUフィルタ条件から、フィルタ範囲（compute/render 共用）と
+    // per-column soft-edge フェード（render 専用）をまとめて構築する。
+    let activeFilterMask = 0;
+    const filterRangeMin = [-Infinity, -Infinity, -Infinity, -Infinity];
+    const filterRangeMax = [Infinity, Infinity, Infinity, Infinity];
+    const fadeWidth = [0, 0, 0, 0];
+    // 2bit/列: bit(2c)=min端をフェード, bit(2c+1)=max端をフェード
+    let fadeEdgeFlags = 0;
+    for (const condition of this.gpuFilterConditions) {
+      const c = condition.columnIndex;
+      if (c >= 0 && c < 4) {
+        activeFilterMask |= 1 << c;
+        filterRangeMin[c] = condition.min;
+        filterRangeMax[c] = condition.max;
+        if (condition.fade && condition.fade.width > 0) {
+          fadeWidth[c] = condition.fade.width;
+          const edges = condition.fade.edges;
+          if (edges !== 'max') fadeEdgeFlags |= 1 << (2 * c); // min端
+          if (edges !== 'min') fadeEdgeFlags |= 1 << (2 * c + 1); // max端
+        }
+      }
+    }
+
+    // 144バイト: f32 と u32 が混在するため ArrayBuffer に2つのビューを張る
+    const renderUniformData = new ArrayBuffer(144);
+    const renderFloatView = new Float32Array(renderUniformData);
+    const renderUint32View = new Uint32Array(renderUniformData);
+    renderFloatView.set(viewMatrix, 0);
     // Vertex Shaderで pow(zoom, 0.3) を計算するコストを避けるため、CPUで事前に計算して渡す
-    renderUniformData[16] = Math.pow(this.zoom, 0.3);
-    renderUniformData[17] = this.canvas.width;
-    renderUniformData[18] = this.canvas.height;
-    renderUniformData[19] = this.pointAlpha;
-    renderUniformData[20] = this.pointSizeScale;
+    renderFloatView[16] = Math.pow(this.zoom, 0.3);
+    renderFloatView[17] = this.canvas.width;
+    renderFloatView[18] = this.canvas.height;
+    renderFloatView[19] = this.pointAlpha;
+    renderFloatView[20] = this.pointSizeScale;
     // grayedMode: 0.0 (通常ポイント用)
-    renderUniformData[21] = 0.0;
+    renderFloatView[21] = 0.0;
+    // per-column soft-edge フェード（gpuWhereConditions.fade）
+    renderUint32View[22] = fadeEdgeFlags >>> 0;
+    // [23] = padding(u32)
+    renderFloatView[24] = filterRangeMin[0]; // filterRangeMin: vec4 @ byte 96
+    renderFloatView[25] = filterRangeMin[1];
+    renderFloatView[26] = filterRangeMin[2];
+    renderFloatView[27] = filterRangeMin[3];
+    renderFloatView[28] = filterRangeMax[0]; // filterRangeMax: vec4 @ byte 112
+    renderFloatView[29] = filterRangeMax[1];
+    renderFloatView[30] = filterRangeMax[2];
+    renderFloatView[31] = filterRangeMax[3];
+    renderFloatView[32] = fadeWidth[0]; // fadeWidth: vec4 @ byte 128
+    renderFloatView[33] = fadeWidth[1];
+    renderFloatView[34] = fadeWidth[2];
+    renderFloatView[35] = fadeWidth[3];
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
     // フィルター済みポイント用ユニフォーム（grayedMode = 1.0）
     if (this.filteredRenderUniformBuffer) {
-      const filteredRenderUniformData = new Float32Array(24);
-      filteredRenderUniformData.set(renderUniformData);
-      filteredRenderUniformData[21] = 1.0; // grayedMode = 1.0
+      const filteredRenderUniformData = renderUniformData.slice(0);
+      new Float32Array(filteredRenderUniformData)[21] = 1.0; // grayedMode = 1.0
+      // grayed パスはフィルタ範囲 [min,max] の外側の点を描画するため、フェードを
+      // 適用すると computeFadeAlpha が 0 になり点が消えてしまう（gray 表示にならない）。
+      // fadeEdgeFlags を 0 にしてフェードを無効化し、常に gray で表示する。
+      new Uint32Array(filteredRenderUniformData)[22] = 0;
       this.context.device.queue.writeBuffer(
         this.filteredRenderUniformBuffer,
         0,
@@ -596,18 +647,7 @@ export class GpuLayer {
     computeUint32View[4] = this.calculateLodThreshold();
     computeUint32View[5] = this.totalPointCount;
 
-    let activeFilterMask = 0;
-    const filterRangeMin = [-Infinity, -Infinity, -Infinity, -Infinity];
-    const filterRangeMax = [Infinity, Infinity, Infinity, Infinity];
-
-    for (const condition of this.gpuFilterConditions) {
-      if (condition.columnIndex >= 0 && condition.columnIndex < 4) {
-        activeFilterMask |= 1 << condition.columnIndex;
-        filterRangeMin[condition.columnIndex] = condition.min;
-        filterRangeMax[condition.columnIndex] = condition.max;
-      }
-    }
-
+    // activeFilterMask / filterRangeMin / filterRangeMax は上で構築済み
     computeUint32View[6] = activeFilterMask;
     computeUint32View[7] = this.whereFilterEnabled ? 1 : 0;
 
@@ -848,7 +888,14 @@ export class GpuLayer {
    * GPUフィルター条件を設定する
    * @param conditions フィルター条件の配列
    */
-  setGpuFilterConditions(conditions: { columnIndex: number; min: number; max: number }[]): void {
+  setGpuFilterConditions(
+    conditions: {
+      columnIndex: number;
+      min: number;
+      max: number;
+      fade?: { width: number; edges: 'both' | 'min' | 'max' };
+    }[]
+  ): void {
     this.gpuFilterConditions = conditions;
     this.filterResultValid = false;
     this.updateUniforms();

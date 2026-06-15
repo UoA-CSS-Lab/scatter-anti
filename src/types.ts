@@ -84,7 +84,7 @@ export interface RawSqlFilter {
 /** すべてのWHERE条件の共用体型 */
 export type WhereCondition = NumericFilter | StringFilter | RawSqlFilter;
 
-/** GPUフィルター条件 (range only) */
+/** GPUフィルター条件 (range + optional soft-edge fade) */
 export interface GpuWhereCondition {
   /** フィルター対象のカラム名 (gpuFilterColumnsで指定した名前) */
   column: string;
@@ -92,6 +92,20 @@ export interface GpuWhereCondition {
   min?: number;
   /** 最大値 (指定しない場合は +Infinity) */
   max?: number;
+  /**
+   * オプション: フィルタ範囲の端で alpha を連続的にランプする soft-edge フェード。
+   * 範囲 [min,max] のハードカットはそのまま、その端から内側へ width 分だけ
+   * フェードする。colorSql 再評価を伴わず GPU uniform 更新のみで毎フレーム安価
+   * に変化させられる（このフィルタ自体と同じコスト構造）。per-point 値は
+   * gpuFilterColumns 経由で既に GPU 常駐のため新規データアップロードは起きない。
+   * 無限端（min/max 省略側）は自動的にフェード無効。
+   */
+  fade?: {
+    /** 端のランプ幅（column と同じ単位, > 0）。0 以下でフェード無効 */
+    width: number;
+    /** どの端をフェードするか（既定 'both'） */
+    edges?: 'both' | 'min' | 'max';
+  };
 }
 
 /** フィルターされたポイントの表示モード */
