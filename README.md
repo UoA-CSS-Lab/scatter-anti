@@ -165,6 +165,33 @@ await plot.update({
 | **更新速度** | SQLクエリ再実行が必要 | 即座に反映 |
 | **用途** | 複雑な条件、全文検索 | スライダーなどリアルタイム操作 |
 
+### soft-edge フェード（`fade`）
+
+`gpuWhereConditions` の各条件に `fade` を付けると、フィルタ範囲 `[min,max]` の端で
+ポイントの不透明度（alpha）を連続的にランプさせられます。範囲外のハードカットは
+そのままで、端から内側へ `width` 分だけフェードします。`colorSql` の再評価を伴わず
+GPU の uniform 更新のみで反映されるため、フィルタ範囲をスライドさせながら毎フレーム
+安価にフェードできます（例: 時間窓スライド時のノードのフェードイン/アウト）。
+
+```typescript
+await plot.update({
+  data: {
+    gpuWhereConditions: [
+      {
+        column: 'created_at',
+        min: t0,
+        max: t1,
+        fade: { width: dt, edges: 'both' }, // 窓の両端から dt 分フェード
+      },
+    ],
+  },
+});
+```
+
+* `width`: 端のランプ幅（`column` と同じ単位、`> 0`。`0` 以下でフェード無効）
+* `edges`: フェードする端（`'both'`（既定） / `'min'` / `'max'`）。`min`/`max` を省略した
+  無限端は自動的にフェード無効。
+
 ## 型定義
 
 主な型定義:
@@ -175,6 +202,10 @@ interface GpuWhereCondition {
   column: string;  // gpuFilterColumnsで指定したカラム名
   min?: number;    // 最小値（省略時: -Infinity）
   max?: number;    // 最大値（省略時: +Infinity）
+  fade?: {         // オプション: 範囲端の soft-edge フェード
+    width: number;                       // 端のランプ幅（> 0）
+    edges?: 'both' | 'min' | 'max';      // フェードする端（既定 'both'）
+  };
 }
 
 // ホバーアウトラインオプション
