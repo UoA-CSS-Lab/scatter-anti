@@ -606,10 +606,14 @@ export class GpuLayer {
     renderFloatView[35] = fadeWidth[3];
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
-    // フィルター済みポイント用ユニフォーム（grayedMode = 1.0、フェードは共通）
+    // フィルター済みポイント用ユニフォーム（grayedMode = 1.0）
     if (this.filteredRenderUniformBuffer) {
       const filteredRenderUniformData = renderUniformData.slice(0);
       new Float32Array(filteredRenderUniformData)[21] = 1.0; // grayedMode = 1.0
+      // grayed パスはフィルタ範囲 [min,max] の外側の点を描画するため、フェードを
+      // 適用すると computeFadeAlpha が 0 になり点が消えてしまう（gray 表示にならない）。
+      // fadeEdgeFlags を 0 にしてフェードを無効化し、常に gray で表示する。
+      new Uint32Array(filteredRenderUniformData)[22] = 0;
       this.context.device.queue.writeBuffer(
         this.filteredRenderUniformBuffer,
         0,
