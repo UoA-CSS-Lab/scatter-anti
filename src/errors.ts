@@ -12,6 +12,7 @@ const categoryMap: Record<ErrorCode, ErrorCategory> = {
   PARQUET_LOAD_FAILED: 'data',
   QUERY_FAILED: 'query',
   LABEL_FETCH_FAILED: 'label',
+  CONFIG_WARNING: 'data',
 };
 
 /**
@@ -26,6 +27,7 @@ const severityMap: Record<ErrorCode, ErrorSeverity> = {
   PARQUET_LOAD_FAILED: 'fatal',
   QUERY_FAILED: 'error',
   LABEL_FETCH_FAILED: 'warning',
+  CONFIG_WARNING: 'warning',
 };
 
 /**
