@@ -85,6 +85,10 @@ export class LabelLayer {
   private onLabelHover?: LabelHoverCallback;
   /** 現在ホバー中のポイント */
   private hoveredPoint: Record<string, any> | null = null;
+  /** 直近に hover した点の rowid（mousemove ごとの再クエリ抑制用。null=点上に無い） */
+  private hoveredRowid: number | null = null;
+  /** hover データ取得（findPointById）の世代カウンタ（古い非同期結果の破棄=stale guard 用） */
+  private hoverQuerySeq = 0;
   /** ホバーアウトラインのオプション */
   private hoverOutlineOptions: HoverOutlineOptions;
   /** データレイヤー参照 */
@@ -341,7 +345,7 @@ export class LabelLayer {
     const parent = this.labelCanvas.parentElement;
     if (!parent) return;
 
-    parent.addEventListener('mousemove', async (e: MouseEvent) => {
+    parent.addEventListener('mousemove', (e: MouseEvent) => {
       const rect = this.labelCanvas.getBoundingClientRect();
       const scaleX = this.labelCanvas.width / rect.width;
       const scaleY = this.labelCanvas.height / rect.height;
@@ -350,10 +354,11 @@ export class LabelLayer {
 
       const labelAtPosition = this.getLabelAtPosition(x, y);
 
-      let pointHit: Record<string, any> | null = null;
+      // 点の hit-test は spatial index だけで rowid を引く（DuckDB クエリは発行しない）。
+      let nearestRowid: number | null = null;
       if (!labelAtPosition && this.dataLayer) {
         const aspectRatio = this.labelCanvas.width / this.labelCanvas.height;
-        pointHit = await this.dataLayer.findNearestPoint(
+        nearestRowid = this.dataLayer.findNearestPointId(
           x,
           y,
           this.labelCanvas.width,
@@ -371,7 +376,7 @@ export class LabelLayer {
         this.labelCanvas.style.cursor = 'pointer';
       } else {
         this.labelCanvas.style.pointerEvents = 'none';
-        this.labelCanvas.style.cursor = pointHit ? 'pointer' : 'default';
+        this.labelCanvas.style.cursor = nearestRowid != null ? 'pointer' : 'default';
       }
 
       if (labelAtPosition !== this.hoveredLabel) {
@@ -382,15 +387,41 @@ export class LabelLayer {
         this.render();
       }
 
-      if (pointHit !== this.hoveredPoint) {
-        this.hoveredPoint = pointHit;
-
-        if (this.onPointHover) {
-          this.onPointHover(this.hoveredPoint);
-        }
-
-        this.render();
+      // hover 中の点が変わらなければ何もしない（同じ点での再クエリ・再 render を防ぐ）。
+      if (nearestRowid === this.hoveredRowid) {
+        return;
       }
+      this.hoveredRowid = nearestRowid;
+      // 進行中の hover クエリを無効化（古い結果が新しい hover を上書きしないように）。
+      const seq = ++this.hoverQuerySeq;
+
+      if (nearestRowid == null) {
+        if (this.hoveredPoint !== null) {
+          this.hoveredPoint = null;
+          if (this.onPointHover) {
+            this.onPointHover(null);
+          }
+          this.render();
+        }
+        return;
+      }
+
+      // rowid が変わったときだけ点データ本体（SELECT *）を取得する。
+      // 非同期結果は seq で検証し、古いものは破棄する（stale guard）。
+      void this.dataLayer!.findPointById(nearestRowid)
+        .then((data) => {
+          if (seq !== this.hoverQuerySeq) {
+            return;
+          }
+          this.hoveredPoint = data;
+          if (this.onPointHover) {
+            this.onPointHover(this.hoveredPoint);
+          }
+          this.render();
+        })
+        .catch(() => {
+          /* hover query failure: keep previous hovered point */
+        });
     });
 
     this.labelCanvas.addEventListener('click', (e: MouseEvent) => {
@@ -443,6 +474,8 @@ export class LabelLayer {
 
       this.hoveredLabel = null;
       this.hoveredPoint = null;
+      this.hoveredRowid = null;
+      this.hoverQuerySeq++;
 
       if (hadLabel && this.onLabelHover) {
         this.onLabelHover(null);
@@ -540,6 +573,12 @@ export class LabelLayer {
     if (data === this.hoveredPoint) {
       return;
     }
+    // 進行中の mousemove hover クエリを無効化し、その結果がこの明示設定を上書きしないようにする。
+    // hoveredRowid もリセットする: これをしないと、cursor が同じ点上にあるまま null クリア
+    // された場合、次の mousemove が `nearestRowid === this.hoveredRowid` 早期 return に当たり、
+    // 点を再取得できず onPointHover も発火しなくなる（別の点/空白へ動くまで復帰しない）。
+    this.hoverQuerySeq++;
+    this.hoveredRowid = null;
     this.hoveredPoint = data;
 
     if (this.onPointHover) {
