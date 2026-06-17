@@ -420,7 +420,13 @@ export class DataLayer {
    * @param thresholdPixels ヒットと見なす最大距離（ピクセル、デフォルト: 10）
    * @returns 見つかった場合はポイントデータ、そうでない場合はnull
    */
-  async findNearestPoint(
+  /**
+   * 画面座標に最も近いポイントの rowid を返す（spatial index のみ。DuckDB クエリは発行しない）。
+   * hover のたびに点データ（SELECT *）を取得するのを避け、rowid が前回と変わったときだけ
+   * findPointById を呼べるようにするための軽量版。
+   * @returns 見つかった場合は rowid、なければ null
+   */
+  findNearestPointId(
     screenX: number,
     screenY: number,
     canvasWidth: number,
@@ -430,7 +436,7 @@ export class DataLayer {
     panY: number,
     aspectRatio: number,
     thresholdPixels: number = 10
-  ): Promise<Record<string, any> | null> {
+  ): number | null {
     if (!this.spatialIndex.isBuilt()) {
       return null;
     }
@@ -445,15 +451,40 @@ export class DataLayer {
     const thresholdWorld = (thresholdClip * aspectRatio) / zoom;
     const thresholdWorldSq = thresholdWorld * thresholdWorld;
 
-    const nearestRowid = this.spatialIndex.findNearest(
-      worldX,
-      worldY,
-      thresholdWorldSq,
-      this.visibilityFlags,
-      this.filterColumnData,
-      this.gpuFilterRanges
+    return (
+      this.spatialIndex.findNearest(
+        worldX,
+        worldY,
+        thresholdWorldSq,
+        this.visibilityFlags,
+        this.filterColumnData,
+        this.gpuFilterRanges
+      ) ?? null
     );
+  }
 
+  async findNearestPoint(
+    screenX: number,
+    screenY: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    zoom: number,
+    panX: number,
+    panY: number,
+    aspectRatio: number,
+    thresholdPixels: number = 10
+  ): Promise<Record<string, any> | null> {
+    const nearestRowid = this.findNearestPointId(
+      screenX,
+      screenY,
+      canvasWidth,
+      canvasHeight,
+      zoom,
+      panX,
+      panY,
+      aspectRatio,
+      thresholdPixels
+    );
     if (nearestRowid == null) {
       return null;
     }

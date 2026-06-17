@@ -34,7 +34,9 @@ export class ParquetReader {
     );
 
     const worker = new Worker(worker_url);
-    const logger = new duckdb.ConsoleLogger();
+    // 既定は VoidLogger。ConsoleLogger は全クエリ（hover の per-point SELECT を含む）を
+    // INFO レベルで console.log するため、マウス移動時にログが氾濫し性能/可読性を損なう。
+    const logger = new duckdb.VoidLogger();
 
     this.db = new duckdb.AsyncDuckDB(logger, worker);
     await this.db.instantiate(bundle.mainModule, bundle.pthreadWorker);
