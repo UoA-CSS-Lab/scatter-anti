@@ -573,8 +573,12 @@ export class LabelLayer {
     if (data === this.hoveredPoint) {
       return;
     }
-    // 進行中の mousemove hover クエリを無効化し、その結果がこの明示設定を上書きしないようにする
+    // 進行中の mousemove hover クエリを無効化し、その結果がこの明示設定を上書きしないようにする。
+    // hoveredRowid もリセットする: これをしないと、cursor が同じ点上にあるまま null クリア
+    // された場合、次の mousemove が `nearestRowid === this.hoveredRowid` 早期 return に当たり、
+    // 点を再取得できず onPointHover も発火しなくなる（別の点/空白へ動くまで復帰しない）。
     this.hoverQuerySeq++;
+    this.hoveredRowid = null;
     this.hoveredPoint = data;
 
     if (this.onPointHover) {
