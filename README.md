@@ -265,6 +265,7 @@ plot.setSelectionStyle({ selectedColor: { r: 1, g: 0.2, b: 0.2, a: 1 }, unselect
 * `selectedColor`: 選択点の色（既定: 黄系の強調色）
 * `unselectedAlpha`: 選択有効時の非選択点の alpha 係数（既定 `0.25`）
 * `selectedSizeScale`: 選択点のサイズ倍率（既定 `1.35`）
+* `highlightSelected`: 選択点を `selectedColor` で塗り替えるか（既定 `true`）。`false` にすると選択点は元の色を保持し、非選択点の減衰（`unselectedAlpha`）のみ行う（クラスタ配色などを保ったまま「非選択を暗くする」dim-only 表示）
 
 > ポイント ID は Parquet の行順（rowid = ポイントバッファの index）に対応します。
 

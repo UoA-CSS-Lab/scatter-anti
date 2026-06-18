@@ -35,6 +35,7 @@ const DEFAULT_SELECTION_STYLE: Required<SelectionStyle> = {
   selectedColor: { r: 1.0, g: 0.85, b: 0.2, a: 1.0 },
   unselectedAlpha: 0.25,
   selectedSizeScale: 1.35,
+  highlightSelected: true,
 };
 
 /**
@@ -201,6 +202,7 @@ export class GpuLayer {
       selectedColor: style?.selectedColor ?? DEFAULT_SELECTION_STYLE.selectedColor,
       unselectedAlpha: style?.unselectedAlpha ?? DEFAULT_SELECTION_STYLE.unselectedAlpha,
       selectedSizeScale: style?.selectedSizeScale ?? DEFAULT_SELECTION_STYLE.selectedSizeScale,
+      highlightSelected: style?.highlightSelected ?? DEFAULT_SELECTION_STYLE.highlightSelected,
     };
   }
 
@@ -781,7 +783,8 @@ export class GpuLayer {
     renderFloatView[39] = this.selectionStyle.selectedColor.a;
     renderFloatView[40] = this.selectionStyle.unselectedAlpha;
     renderFloatView[41] = this.selectionStyle.selectedSizeScale;
-    // [42], [43] = padding
+    renderFloatView[42] = this.selectionStyle.highlightSelected ? 1.0 : 0.0; // selectionHighlight @168
+    // [43] = padding
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
     // フィルター済みポイント用ユニフォーム（grayedMode = 1.0）

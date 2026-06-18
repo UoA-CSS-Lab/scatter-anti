@@ -153,6 +153,12 @@ export interface SelectionStyle {
   unselectedAlpha?: number;
   /** 選択済みポイントのサイズ倍率（既定 1.35） */
   selectedSizeScale?: number;
+  /**
+   * 選択点を selectedColor で塗り替えるか（既定 true）。false にすると選択点は元の色を
+   * 保持し、非選択点の減衰（unselectedAlpha）のみ行う＝クラスタ配色などを保ったまま
+   * 「非選択を暗くする」dim-only 表示になる。
+   */
+  highlightSelected?: boolean;
 }
 
 /** update() が実際に通った処理経路 */
