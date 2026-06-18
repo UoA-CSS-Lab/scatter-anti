@@ -73,6 +73,12 @@ export class DataLayer {
   private onDataChanged?: () => void | Promise<void>;
   /** WHERE条件変更時のビジビリティ更新コールバック */
   private onVisibilityChanged?: () => void | Promise<void>;
+  /**
+   * 構築時に検出したが、まだ発火していない設定警告（gpuFilterColumns 超過など）。
+   * ScatterPlot のコンストラクタ内では consumer がまだ on('error') を登録できないため、
+   * リスナーが attach 済みになる initialize() まで発火を遅延させる。
+   */
+  private pendingConfigWarning: ScatterPlotError | null = null;
 
   /** 全ポイントデータのキャッシュ（ポイント検索用、SoA形式） */
   private pointsCache: PointsCache = {
@@ -99,35 +105,53 @@ export class DataLayer {
     this.sizeSql = options.sizeSql ?? this.sizeSql;
     this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
-    this.gpuFilterColumns = this.normalizeGpuFilterColumns(options.gpuFilterColumns);
+    const capped = this.capGpuFilterColumns(options.gpuFilterColumns);
+    this.gpuFilterColumns = capped.columns;
+    // 構築時点では consumer がまだ on('error') を登録できない（コンストラクタ内）ため、
+    // 警告の発火は initialize() まで遅延する。リスナー登録後の updateOptions は即時発火。
+    this.pendingConfigWarning = capped.warning;
     this.onDataChanged = options.onDataChanged;
     this.onVisibilityChanged = options.onVisibilityChanged;
   }
 
   /**
-   * GPU filter columns は shader/buffer の fast path として vec4 に packing する。
-   * 現状は最大4列に制限し、超過分は明示的に警告して落とす。
+   * GPU filter columns は shader/buffer の fast path として vec4 に packing するため
+   * 最大 MAX_GPU_FILTER_COLUMNS 列に制限する。capping した列と、超過時に発火すべき
+   * CONFIG_WARNING を返す。副作用は持たず、警告の発火タイミングは呼び出し側に委ねる
+   * （構築時は遅延、updateOptions では即時）。
    */
-  private normalizeGpuFilterColumns(columns: string[] | undefined): string[] {
+  private capGpuFilterColumns(columns: string[] | undefined): {
+    columns: string[];
+    warning: ScatterPlotError | null;
+  } {
     const requestedColumns = columns ?? [];
     if (requestedColumns.length <= MAX_GPU_FILTER_COLUMNS) {
-      return [...requestedColumns];
+      return { columns: [...requestedColumns], warning: null };
     }
 
     const usedColumns = requestedColumns.slice(0, MAX_GPU_FILTER_COLUMNS);
     const ignoredColumns = requestedColumns.slice(MAX_GPU_FILTER_COLUMNS);
-    if (this.onError) {
-      this.onError(
-        createError(
-          'CONFIG_WARNING',
-          `gpuFilterColumns accepts at most ${MAX_GPU_FILTER_COLUMNS} columns; extra columns were ignored.`,
-          {
-            context: { maxGpuFilterColumns: MAX_GPU_FILTER_COLUMNS, usedColumns, ignoredColumns },
-          }
-        )
-      );
+    const warning = createError(
+      'CONFIG_WARNING',
+      `gpuFilterColumns accepts at most ${MAX_GPU_FILTER_COLUMNS} columns; extra columns were ignored.`,
+      {
+        context: { maxGpuFilterColumns: MAX_GPU_FILTER_COLUMNS, usedColumns, ignoredColumns },
+      }
+    );
+    return { columns: usedColumns, warning };
+  }
+
+  /**
+   * 構築時に保留した設定警告を発行する。ScatterPlot のコンストラクタ内ではリスナーを
+   * 登録できないため、リスナーが attach 済みになる initialize() の時点まで遅延させている。
+   * 一度発火したらクリアし、二重発火しない。
+   */
+  private flushPendingConfigWarning(): void {
+    const warning = this.pendingConfigWarning;
+    this.pendingConfigWarning = null;
+    if (warning && this.onError) {
+      this.onError(warning);
     }
-    return usedColumns;
   }
 
   /**
@@ -139,6 +163,8 @@ export class DataLayer {
     source: string | ArrayBuffer | File,
     onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>
   ): Promise<AllPointsData> {
+    // 構築時に保留した設定警告を、リスナーが登録済みのこの時点で発行する
+    this.flushPendingConfigWarning();
     this.repository = await createParquetReader();
     if (typeof source === 'string') {
       await this.repository.loadParquetFromUrl(source);
@@ -418,11 +444,19 @@ export class DataLayer {
       }
     }
     if (options.gpuFilterColumns !== undefined) {
-      const nextColumns = this.normalizeGpuFilterColumns(options.gpuFilterColumns);
+      const capped = this.capGpuFilterColumns(options.gpuFilterColumns);
+      // この更新が gpuFilterColumns を上書きするため、構築時に保留した警告は破棄する。
+      // （未 initialize の状態でこれが呼ばれても、後続の flush で古い設定の警告が
+      //   二重発火しないようにする。現在の設定に対する警告は下で即時発火する。）
+      this.pendingConfigWarning = null;
+      // 構築後の更新では consumer が on('error') を登録済みなので即時発火してよい
+      if (capped.warning && this.onError) {
+        this.onError(capped.warning);
+      }
       const oldColumns = this.gpuFilterColumns.join(',');
-      const newColumns = nextColumns.join(',');
+      const newColumns = capped.columns.join(',');
       if (oldColumns !== newColumns) {
-        this.gpuFilterColumns = nextColumns;
+        this.gpuFilterColumns = capped.columns;
         gpuFilterColumnsChanged = true;
       }
     }

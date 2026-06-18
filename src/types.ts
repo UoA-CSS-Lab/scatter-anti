@@ -157,7 +157,11 @@ export interface DataOptions {
   colorSql?: string;
   /** データをフィルタリングするWHERE条件（ANDのみ） */
   whereConditions?: WhereCondition[];
-  /** GPUでフィルタリングするカラム名 (最大4つ。超過分は無視され CONFIG_WARNING が発火) */
+  /**
+   * GPUでフィルタリングするカラム名 (最大4つ)。超過分は無視され CONFIG_WARNING が発火する。
+   * 初期設定での警告は `initialize()` 時に発火するため、observe するには `initialize()` より前に
+   * `on('error', ...)` を登録すること（構築後の `update()` での警告は即時発火）。
+   */
   gpuFilterColumns?: string[];
   /** GPU側で実行するフィルター条件 */
   gpuWhereConditions?: GpuWhereCondition[];
