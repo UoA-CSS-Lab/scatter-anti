@@ -16,6 +16,13 @@ export type {
   // GPU filter types
   GpuWhereCondition,
   FilteredPointDisplayMode,
+  // Selection / brushing types
+  SelectionBrushMode,
+  SelectionBrushTarget,
+  BrushBounds,
+  ScreenBrushRect,
+  BrushOptions,
+  SelectionStyle,
   // Error handling types
   ErrorSeverity,
   ErrorCategory,

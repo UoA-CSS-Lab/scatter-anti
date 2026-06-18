@@ -111,6 +111,51 @@ export interface GpuWhereCondition {
 /** フィルターされたポイントの表示モード */
 export type FilteredPointDisplayMode = 'hidden' | 'grayed';
 
+/** GPU 常駐 selection mask を brush 操作で更新するときの合成モード */
+export type SelectionBrushMode = 'replace' | 'add' | 'subtract' | 'toggle';
+
+/**
+ * brush の対象集合。
+ * - 'filtered-data'（既定）: 現在の whereConditions / gpuWhereConditions を通過した点のみ選択
+ * - 'all-data': フィルタ状態に関係なく全点を選択対象にする
+ * - 'visible-lod': LOD で実際に描画されている点のみ選択対象にする
+ */
+export type SelectionBrushTarget = 'all-data' | 'filtered-data' | 'visible-lod';
+
+/** データ空間での矩形 brush 範囲（順序は任意で、内部で min/max に正規化される） */
+export interface BrushBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/** キャンバス画面座標（物理ピクセル）での矩形 brush 範囲（順序は任意） */
+export interface ScreenBrushRect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** brush 操作のオプション */
+export interface BrushOptions {
+  /** 合成モード（既定 'replace'） */
+  mode?: SelectionBrushMode;
+  /** 対象集合（既定 'filtered-data'） */
+  target?: SelectionBrushTarget;
+}
+
+/** selection mask の描画スタイル */
+export interface SelectionStyle {
+  /** 選択済みポイントの色（未指定時は黄色系の強調色） */
+  selectedColor?: Color4f;
+  /** selection 有効時の非選択ポイント alpha 係数（0.0-1.0、既定 0.25） */
+  unselectedAlpha?: number;
+  /** 選択済みポイントのサイズ倍率（既定 1.35） */
+  selectedSizeScale?: number;
+}
+
 export interface DataOptions {
   /** レンダリングする表示ポイントの最大数 */
   visiblePointLimit?: number;
@@ -135,6 +180,8 @@ export interface GpuOptions {
   pointAlpha?: number;
   /** グローバルサイズスケール (デフォルト: 1.0) */
   pointSizeScale?: number;
+  /** selection mask の描画スタイル */
+  selection?: SelectionStyle;
 }
 
 export interface LabelOptions {
