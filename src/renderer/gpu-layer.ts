@@ -1,7 +1,41 @@
 import { WebGPUContext } from './webgpu-context.js';
-import { scatterVertexShader, filterComputeShader, updateIndirectShader } from './shaders.js';
-import type { Color4f, FilteredPointDisplayMode } from '../types.js';
+import {
+  scatterVertexShader,
+  filterComputeShader,
+  updateIndirectShader,
+  brushSelectionShader,
+  countSelectionShader,
+} from './shaders.js';
+import type {
+  Color4f,
+  FilteredPointDisplayMode,
+  SelectionStyle,
+  SelectionBrushMode,
+  BrushBounds,
+  ScreenBrushRect,
+  BrushOptions,
+} from '../types.js';
 import { DEFAULT_VISIBLE_POINT_LIMIT } from '../constants.js';
+
+/** render uniform buffer サイズ（selection style フィールドを含む, byte） */
+const RENDER_UNIFORM_SIZE = 176;
+/** brush compute uniform buffer サイズ（byte） */
+const BRUSH_UNIFORM_SIZE = 80;
+/** count compute uniform buffer サイズ（byte） */
+const COUNT_UNIFORM_SIZE = 16;
+/** SelectionBrushMode → shader 内合成コード */
+const BRUSH_MODE_CODE: Record<SelectionBrushMode, number> = {
+  replace: 0,
+  add: 1,
+  subtract: 2,
+  toggle: 3,
+};
+/** 既定の selection 描画スタイル（黄系の強調色） */
+const DEFAULT_SELECTION_STYLE: Required<SelectionStyle> = {
+  selectedColor: { r: 1.0, g: 0.85, b: 0.2, a: 1.0 },
+  unselectedAlpha: 0.25,
+  selectedSizeScale: 1.35,
+};
 
 /**
  * GPU用に処理されたポイントデータ
@@ -27,6 +61,8 @@ export interface GpuLayerOptions {
   pointAlpha?: number;
   /** グローバルサイズスケール (デフォルト: 1.0) */
   pointSizeScale?: number;
+  /** selection mask の描画スタイル */
+  selectionStyle?: SelectionStyle;
 }
 
 // ビューポート境界のマージン（クリップ空間）
@@ -52,6 +88,10 @@ export class GpuLayer {
   private filterPipeline: GPUComputePipeline | null = null;
   /** Indirect Buffer更新用コンピュートパイプライン */
   private updateIndirectPipeline: GPUComputePipeline | null = null;
+  /** brush selection 用コンピュートパイプライン */
+  private brushSelectionPipeline: GPUComputePipeline | null = null;
+  /** selection 集計用コンピュートパイプライン */
+  private countSelectionPipeline: GPUComputePipeline | null = null;
 
   /** クワッド頂点バッファ（stepMode: 'vertex'） */
   private quadVertexBuffer: GPUBuffer | null = null;
@@ -73,6 +113,14 @@ export class GpuLayer {
   private filterColumnsBuffer: GPUBuffer | null = null;
   /** WHERE条件による可視/非可視ビットマップバッファ */
   private visibilityFlagsBuffer: GPUBuffer | null = null;
+  /** GPU 常駐 selection bitset（1bit/point, brush で atomic 更新） */
+  private selectionFlagsBuffer: GPUBuffer | null = null;
+  /** selection bit 数（render の強調/減衰ゲート用, u32×1） */
+  private selectionCountBuffer: GPUBuffer | null = null;
+  /** brush compute 用 uniform バッファ */
+  private brushUniformBuffer: GPUBuffer | null = null;
+  /** count compute 用 uniform バッファ */
+  private countUniformBuffer: GPUBuffer | null = null;
 
   /** フィルター済みポイントインデックスバッファ (Storage) */
   private filteredIndicesBuffer: GPUBuffer | null = null;
@@ -103,6 +151,10 @@ export class GpuLayer {
   private filteredRenderBindGroup: GPUBindGroup | null = null;
   /** フィルター済みポイント用Indirect更新バインドグループ */
   private filteredUpdateIndirectBindGroup: GPUBindGroup | null = null;
+  /** brush selection 用バインドグループ */
+  private brushSelectionBindGroup: GPUBindGroup | null = null;
+  /** selection 集計用バインドグループ */
+  private countSelectionBindGroup: GPUBindGroup | null = null;
 
   /** フィルターされたポイントの表示モード */
   private filteredPointDisplayMode: FilteredPointDisplayMode = 'hidden';
@@ -126,6 +178,8 @@ export class GpuLayer {
   private pointAlpha: number = 1.0;
   /** グローバルサイズスケール */
   private pointSizeScale: number = 1.0;
+  /** selection 描画スタイル */
+  private selectionStyle: Required<SelectionStyle> = DEFAULT_SELECTION_STYLE;
 
   /**
    * GpuLayerインスタンスを作成する
@@ -138,6 +192,16 @@ export class GpuLayer {
     this.visiblePointLimit = options.visiblePointLimit ?? DEFAULT_VISIBLE_POINT_LIMIT;
     this.pointAlpha = Math.max(0, Math.min(1, options.pointAlpha ?? 1.0));
     this.pointSizeScale = Math.max(0.01, options.pointSizeScale ?? 1.0);
+    this.selectionStyle = this.resolveSelectionStyle(options.selectionStyle);
+  }
+
+  /** 部分指定の SelectionStyle を既定値で埋める */
+  private resolveSelectionStyle(style?: SelectionStyle): Required<SelectionStyle> {
+    return {
+      selectedColor: style?.selectedColor ?? DEFAULT_SELECTION_STYLE.selectedColor,
+      unselectedAlpha: style?.unselectedAlpha ?? DEFAULT_SELECTION_STYLE.unselectedAlpha,
+      selectedSizeScale: style?.selectedSizeScale ?? DEFAULT_SELECTION_STYLE.selectedSizeScale,
+    };
   }
 
   /**
@@ -229,6 +293,22 @@ export class GpuLayer {
         topology: 'triangle-list',
       },
     });
+
+    const brushShaderModule = this.context.device.createShaderModule({
+      code: brushSelectionShader,
+    });
+    this.brushSelectionPipeline = this.context.device.createComputePipeline({
+      layout: 'auto',
+      compute: { module: brushShaderModule, entryPoint: 'main' },
+    });
+
+    const countShaderModule = this.context.device.createShaderModule({
+      code: countSelectionShader,
+    });
+    this.countSelectionPipeline = this.context.device.createComputePipeline({
+      layout: 'auto',
+      compute: { module: countShaderModule, entryPoint: 'main' },
+    });
   }
 
   /**
@@ -284,7 +364,7 @@ export class GpuLayer {
     this.context.device.queue.writeBuffer(this.indexBuffer, 0, indices);
 
     this.renderUniformBuffer = this.context.device.createBuffer({
-      size: 144,
+      size: RENDER_UNIFORM_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -310,7 +390,7 @@ export class GpuLayer {
     });
 
     this.filteredRenderUniformBuffer = this.context.device.createBuffer({
-      size: 144,
+      size: RENDER_UNIFORM_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -331,7 +411,56 @@ export class GpuLayer {
     initialFlags.fill(0xffffffff);
     this.context.device.queue.writeBuffer(this.visibilityFlagsBuffer, 0, initialFlags);
 
+    // selection 用バッファ（bitset + count + brush/count uniform）
+    this.createSelectionBuffers(data.totalCount);
+
     this.updateUniforms();
+  }
+
+  /**
+   * selection 用 GPU バッファ群を（再）生成し初期化する。
+   * selectionFlags（bitset）はサイズが totalCount に依存するため毎回作り直す。
+   * count/brush/count-uniform は固定サイズなので未生成時のみ作る。
+   */
+  private createSelectionBuffers(totalCount: number): void {
+    if (!this.context.device) return;
+
+    const wordCount = Math.max(1, Math.ceil(totalCount / 32));
+
+    this.selectionFlagsBuffer?.destroy();
+    this.selectionFlagsBuffer = this.context.device.createBuffer({
+      size: wordCount * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    // 初期状態は全 bit 0（未選択）
+    this.context.device.queue.writeBuffer(this.selectionFlagsBuffer, 0, new Uint32Array(wordCount));
+
+    if (!this.selectionCountBuffer) {
+      this.selectionCountBuffer = this.context.device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      });
+    }
+    this.context.device.queue.writeBuffer(this.selectionCountBuffer, 0, new Uint32Array([0]));
+
+    if (!this.brushUniformBuffer) {
+      this.brushUniformBuffer = this.context.device.createBuffer({
+        size: BRUSH_UNIFORM_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+    }
+    if (!this.countUniformBuffer) {
+      this.countUniformBuffer = this.context.device.createBuffer({
+        size: COUNT_UNIFORM_SIZE,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+    }
+    // count uniform は wordCount のみ保持（N 変化時に更新）
+    this.context.device.queue.writeBuffer(
+      this.countUniformBuffer,
+      0,
+      new Uint32Array([wordCount, 0, 0, 0])
+    );
   }
 
   /**
@@ -354,7 +483,13 @@ export class GpuLayer {
       !this.filteredIndicesBuffer ||
       !this.filteredCounterBuffer ||
       !this.filteredIndirectBuffer ||
-      !this.filteredRenderUniformBuffer
+      !this.filteredRenderUniformBuffer ||
+      !this.brushSelectionPipeline ||
+      !this.countSelectionPipeline ||
+      !this.selectionFlagsBuffer ||
+      !this.selectionCountBuffer ||
+      !this.brushUniformBuffer ||
+      !this.countUniformBuffer
     ) {
       return;
     }
@@ -396,6 +531,8 @@ export class GpuLayer {
         { binding: 1, resource: { buffer: this.allPointsBuffer } },
         { binding: 2, resource: { buffer: this.visibleIndicesBuffer } },
         { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
+        { binding: 4, resource: { buffer: this.selectionFlagsBuffer } },
+        { binding: 5, resource: { buffer: this.selectionCountBuffer } },
       ],
     });
 
@@ -406,6 +543,28 @@ export class GpuLayer {
         { binding: 1, resource: { buffer: this.allPointsBuffer } },
         { binding: 2, resource: { buffer: this.filteredIndicesBuffer } },
         { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
+        { binding: 4, resource: { buffer: this.selectionFlagsBuffer } },
+        { binding: 5, resource: { buffer: this.selectionCountBuffer } },
+      ],
+    });
+
+    this.brushSelectionBindGroup = this.context.device.createBindGroup({
+      layout: this.brushSelectionPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.allPointsBuffer } },
+        { binding: 1, resource: { buffer: this.selectionFlagsBuffer } },
+        { binding: 2, resource: { buffer: this.brushUniformBuffer } },
+        { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
+        { binding: 4, resource: { buffer: this.visibilityFlagsBuffer } },
+      ],
+    });
+
+    this.countSelectionBindGroup = this.context.device.createBindGroup({
+      layout: this.countSelectionPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.selectionFlagsBuffer } },
+        { binding: 1, resource: { buffer: this.selectionCountBuffer } },
+        { binding: 2, resource: { buffer: this.countUniformBuffer } },
       ],
     });
   }
@@ -418,6 +577,7 @@ export class GpuLayer {
     if (!this.context.device) return;
 
     const newTotalCount = data.totalCount;
+    const countChanged = newTotalCount !== this.totalPointCount;
 
     if (newTotalCount > this.totalPointCount) {
       this.allPointsBuffer?.destroy();
@@ -453,7 +613,16 @@ export class GpuLayer {
       initialFlags.fill(0xffffffff);
       this.context.device.queue.writeBuffer(this.visibilityFlagsBuffer, 0, initialFlags);
       this.whereFilterEnabled = false;
+    }
 
+    if (countChanged) {
+      // ポイント集合が変わった（増減いずれも）。selection は index(rowid) ベースのため無効化し、
+      // bitset / count / countUniform を新しい totalCount に合わせて作り直してクリアする。
+      // 縮小時に作り直さないと、旧 bitset の範囲外 bit が count されて getSelectionCount() が
+      // 過大になり、存在しない点の減衰が残ってしまう（同一カウントの再 materialize 時は
+      // rowid が不変なので selection を保持する）。createBindGroups は拡大時に作り直した
+      // 大バッファと新しい selection バッファの両方を rebind する。
+      this.createSelectionBuffers(newTotalCount);
       this.createBindGroups();
     }
 
@@ -577,8 +746,8 @@ export class GpuLayer {
       }
     }
 
-    // 144バイト: f32 と u32 が混在するため ArrayBuffer に2つのビューを張る
-    const renderUniformData = new ArrayBuffer(144);
+    // render uniform: f32 と u32 が混在するため ArrayBuffer に2つのビューを張る
+    const renderUniformData = new ArrayBuffer(RENDER_UNIFORM_SIZE);
     const renderFloatView = new Float32Array(renderUniformData);
     const renderUint32View = new Uint32Array(renderUniformData);
     renderFloatView.set(viewMatrix, 0);
@@ -605,6 +774,14 @@ export class GpuLayer {
     renderFloatView[33] = fadeWidth[1];
     renderFloatView[34] = fadeWidth[2];
     renderFloatView[35] = fadeWidth[3];
+    // selection style: selectionColor vec4 @ byte 144, unselectedAlpha @160, selectedSizeScale @164
+    renderFloatView[36] = this.selectionStyle.selectedColor.r;
+    renderFloatView[37] = this.selectionStyle.selectedColor.g;
+    renderFloatView[38] = this.selectionStyle.selectedColor.b;
+    renderFloatView[39] = this.selectionStyle.selectedColor.a;
+    renderFloatView[40] = this.selectionStyle.unselectedAlpha;
+    renderFloatView[41] = this.selectionStyle.selectedSizeScale;
+    // [42], [43] = padding
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
     // フィルター済みポイント用ユニフォーム（grayedMode = 1.0）
@@ -850,6 +1027,14 @@ export class GpuLayer {
       this.pointSizeScale = Math.max(0.01, options.pointSizeScale);
       needsUniformUpdate = true;
     }
+    if (options.selectionStyle !== undefined) {
+      // 部分指定をマージして既定値で埋める（render uniform 経由で反映）
+      this.selectionStyle = this.resolveSelectionStyle({
+        ...this.selectionStyle,
+        ...options.selectionStyle,
+      });
+      needsUniformUpdate = true;
+    }
 
     if (needsUniformUpdate) {
       this.updateUniforms();
@@ -997,6 +1182,192 @@ export class GpuLayer {
   }
 
   /**
+   * selection の描画スタイルを更新する（部分指定可）。次回 render() に反映される。
+   */
+  setSelectionStyle(style: SelectionStyle): void {
+    this.selectionStyle = this.resolveSelectionStyle({ ...this.selectionStyle, ...style });
+    this.updateUniforms();
+  }
+
+  /**
+   * データ空間矩形で selection bitset を更新する（GPU 常駐, CPU 読み戻しなし）。
+   * brush pass で bit を更新し、続く count pass で選択数を集計する。
+   * @param bounds データ空間の矩形（順不同で可、内部で min/max 正規化）
+   * @param options 合成モード（既定 'replace'）/ 対象集合（既定 'filtered-data'）
+   */
+  brushSelect(bounds: BrushBounds, options?: BrushOptions): void {
+    if (
+      !this.context.device ||
+      !this.brushUniformBuffer ||
+      !this.brushSelectionBindGroup ||
+      this.totalPointCount === 0
+    ) {
+      return;
+    }
+
+    const mode = options?.mode ?? 'replace';
+    const target = options?.target ?? 'filtered-data';
+    const { minX, maxX, minY, maxY } = this.normalizeBrushBounds(bounds);
+
+    // filterRange / activeFilterMask は updateUniforms と同じ規約で構築する。
+    let activeFilterMask = 0;
+    const filterRangeMin = [-Infinity, -Infinity, -Infinity, -Infinity];
+    const filterRangeMax = [Infinity, Infinity, Infinity, Infinity];
+    for (const condition of this.gpuFilterConditions) {
+      const c = condition.columnIndex;
+      if (c >= 0 && c < 4) {
+        activeFilterMask |= 1 << c;
+        filterRangeMin[c] = condition.min;
+        filterRangeMax[c] = condition.max;
+      }
+    }
+
+    const brushData = new ArrayBuffer(BRUSH_UNIFORM_SIZE);
+    const f = new Float32Array(brushData);
+    const u = new Uint32Array(brushData);
+    f[0] = minX; // brushMin.x
+    f[1] = minY; // brushMin.y
+    f[2] = maxX; // brushMax.x
+    f[3] = maxY; // brushMax.y
+    f[4] = filterRangeMin[0]; // filterRangeMin: vec4 @ byte 16
+    f[5] = filterRangeMin[1];
+    f[6] = filterRangeMin[2];
+    f[7] = filterRangeMin[3];
+    f[8] = filterRangeMax[0]; // filterRangeMax: vec4 @ byte 32
+    f[9] = filterRangeMax[1];
+    f[10] = filterRangeMax[2];
+    f[11] = filterRangeMax[3];
+    u[12] = this.totalPointCount; // totalPoints @48
+    u[13] = BRUSH_MODE_CODE[mode]; // mode @52
+    u[14] = target === 'filtered-data' ? 1 : 0; // applyFilter @56
+    u[15] = activeFilterMask; // @60
+    u[16] = this.whereFilterEnabled ? 1 : 0; // whereFilterEnabled @64
+    this.context.device.queue.writeBuffer(this.brushUniformBuffer, 0, brushData);
+
+    this.dispatchBrushAndCount();
+  }
+
+  /**
+   * キャンバス画面座標（物理ピクセル）の矩形で selection を更新する。
+   * 現在の zoom / pan を使ってデータ空間へ変換してから brushSelect する。
+   */
+  brushSelectScreenRect(rect: ScreenBrushRect, options?: BrushOptions): void {
+    const a = this.screenToWorld(rect.x0, rect.y0);
+    const b = this.screenToWorld(rect.x1, rect.y1);
+    this.brushSelect({ minX: a.x, maxX: b.x, minY: a.y, maxY: b.y }, options);
+  }
+
+  /**
+   * ポイント ID（= rowid = バッファ index）集合で selection を直接設定する。
+   * GPU で brush せず CPU 側で bitset を構築してアップロードする。
+   */
+  setSelectedPointIds(ids: Iterable<number>): void {
+    if (!this.context.device || !this.selectionFlagsBuffer || !this.selectionCountBuffer) return;
+
+    const wordCount = Math.max(1, Math.ceil(this.totalPointCount / 32));
+    const bitset = new Uint32Array(wordCount);
+    let count = 0;
+    for (const id of ids) {
+      if (id >= 0 && id < this.totalPointCount) {
+        const w = id >>> 5;
+        const mask = 1 << (id & 31);
+        if ((bitset[w] & mask) === 0) {
+          bitset[w] |= mask;
+          count++;
+        }
+      }
+    }
+    this.context.device.queue.writeBuffer(this.selectionFlagsBuffer, 0, bitset);
+    this.context.device.queue.writeBuffer(this.selectionCountBuffer, 0, new Uint32Array([count]));
+  }
+
+  /**
+   * selection を全クリアする。
+   */
+  clearSelection(): void {
+    if (!this.context.device || !this.selectionFlagsBuffer || !this.selectionCountBuffer) return;
+    const wordCount = Math.max(1, Math.ceil(this.totalPointCount / 32));
+    this.context.device.queue.writeBuffer(this.selectionFlagsBuffer, 0, new Uint32Array(wordCount));
+    this.context.device.queue.writeBuffer(this.selectionCountBuffer, 0, new Uint32Array([0]));
+  }
+
+  /**
+   * 現在の selection 数を取得する（GPU からの非同期読み戻し）。
+   */
+  async getSelectionCount(): Promise<number> {
+    if (!this.context.device || !this.selectionCountBuffer) return 0;
+    const staging = this.context.device.createBuffer({
+      size: 4,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const encoder = this.context.device.createCommandEncoder();
+    encoder.copyBufferToBuffer(this.selectionCountBuffer, 0, staging, 0, 4);
+    this.context.device.queue.submit([encoder.finish()]);
+    await staging.mapAsync(GPUMapMode.READ);
+    const count = new Uint32Array(staging.getMappedRange().slice(0))[0];
+    staging.unmap();
+    staging.destroy();
+    return count;
+  }
+
+  /** brush pass → count pass を1回の submit で実行する */
+  private dispatchBrushAndCount(): void {
+    if (
+      !this.context.device ||
+      !this.brushSelectionPipeline ||
+      !this.brushSelectionBindGroup ||
+      !this.countSelectionPipeline ||
+      !this.countSelectionBindGroup ||
+      !this.selectionCountBuffer
+    ) {
+      return;
+    }
+    // count を 0 にリセットしてから popcount で積算する（submit より前に queue 投入）
+    this.context.device.queue.writeBuffer(this.selectionCountBuffer, 0, new Uint32Array([0]));
+
+    const encoder = this.context.device.createCommandEncoder();
+    {
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(this.brushSelectionPipeline);
+      pass.setBindGroup(0, this.brushSelectionBindGroup);
+      pass.dispatchWorkgroups(Math.ceil(this.totalPointCount / 256));
+      pass.end();
+    }
+    {
+      const wordCount = Math.max(1, Math.ceil(this.totalPointCount / 32));
+      const pass = encoder.beginComputePass();
+      pass.setPipeline(this.countSelectionPipeline);
+      pass.setBindGroup(0, this.countSelectionBindGroup);
+      pass.dispatchWorkgroups(Math.ceil(wordCount / 256));
+      pass.end();
+    }
+    this.context.device.queue.submit([encoder.finish()]);
+  }
+
+  /** 画面座標（物理ピクセル, y 下向き）→ データ空間座標 */
+  private screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    const aspectRatio = this.canvas.width / this.canvas.height;
+    const ndcX = (screenX / this.canvas.width) * 2 - 1;
+    const ndcY = -((screenY / this.canvas.height) * 2 - 1);
+    const scaleX = this.zoom / aspectRatio;
+    const scaleY = this.zoom;
+    return {
+      x: (ndcX - this.panX) / scaleX,
+      y: (ndcY - this.panY) / scaleY,
+    };
+  }
+
+  /** BrushBounds を min <= max に正規化する */
+  private normalizeBrushBounds(b: BrushBounds): BrushBounds {
+    return {
+      minX: Math.min(b.minX, b.maxX),
+      maxX: Math.max(b.minX, b.maxX),
+      minY: Math.min(b.minY, b.maxY),
+      maxY: Math.max(b.minY, b.maxY),
+    };
+  }
+
+  /**
    * リソースを破棄する
    */
   destroy(): void {
@@ -1014,6 +1385,10 @@ export class GpuLayer {
     this.filteredCounterBuffer?.destroy();
     this.filteredIndirectBuffer?.destroy();
     this.filteredRenderUniformBuffer?.destroy();
+    this.selectionFlagsBuffer?.destroy();
+    this.selectionCountBuffer?.destroy();
+    this.brushUniformBuffer?.destroy();
+    this.countUniformBuffer?.destroy();
     this.context.destroy();
   }
 }

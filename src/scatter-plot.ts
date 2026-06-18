@@ -7,6 +7,10 @@ import type {
   LabelIdentifier,
   GpuWhereCondition,
   FilteredPointDisplayMode,
+  SelectionStyle,
+  BrushBounds,
+  ScreenBrushRect,
+  BrushOptions,
   ScatterPlotUpdatePath,
   ScatterPlotUpdatePlan,
 } from './types.js';
@@ -66,6 +70,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       visiblePointLimit: options.data.visiblePointLimit,
       pointAlpha: options.gpu?.pointAlpha,
       pointSizeScale: options.gpu?.pointSizeScale,
+      selectionStyle: options.gpu?.selection,
     });
 
     this.labelLayer = new LabelLayer({
@@ -365,6 +370,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         visiblePointLimit: options.data?.visiblePointLimit,
         pointAlpha: options.gpu?.pointAlpha,
         pointSizeScale: options.gpu?.pointSizeScale,
+        selectionStyle: options.gpu?.selection,
       });
       updatePaths.add('gpu-render-uniforms');
     }
@@ -739,6 +745,59 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   getFilteredPointDisplayMode(): FilteredPointDisplayMode {
     return this.gpuLayer.getFilteredPointDisplayMode();
+  }
+
+  /**
+   * データ空間矩形で selection を更新する（GPU 常駐 mask, CPU 読み戻しなし）。
+   * @param bounds データ空間の矩形（順不同で可）
+   * @param options 合成モード（既定 'replace'）/ 対象集合（既定 'filtered-data'）
+   */
+  brushSelect(bounds: BrushBounds, options?: BrushOptions): void {
+    this.gpuLayer.brushSelect(bounds, options);
+    this.render();
+  }
+
+  /**
+   * キャンバス画面座標（物理ピクセル）の矩形で selection を更新する。
+   * @param rect 画面座標の矩形（順不同で可）
+   * @param options 合成モード / 対象集合
+   */
+  brushSelectScreenRect(rect: ScreenBrushRect, options?: BrushOptions): void {
+    this.gpuLayer.brushSelectScreenRect(rect, options);
+    this.render();
+  }
+
+  /**
+   * ポイント ID（rowid）集合で selection を直接設定する。
+   * @param ids 選択するポイント ID（= rowid）
+   */
+  setSelectedPointIds(ids: Iterable<number>): void {
+    this.gpuLayer.setSelectedPointIds(ids);
+    this.render();
+  }
+
+  /**
+   * selection を全クリアする。
+   */
+  clearSelection(): void {
+    this.gpuLayer.clearSelection();
+    this.render();
+  }
+
+  /**
+   * selection の描画スタイルを更新する（部分指定可）。
+   * @param style selectedColor / unselectedAlpha / selectedSizeScale
+   */
+  setSelectionStyle(style: SelectionStyle): void {
+    this.gpuLayer.setSelectionStyle(style);
+    this.render();
+  }
+
+  /**
+   * 現在の selection 数を取得する（GPU からの非同期読み戻し）。
+   */
+  async getSelectionCount(): Promise<number> {
+    return this.gpuLayer.getSelectionCount();
   }
 
   /**
