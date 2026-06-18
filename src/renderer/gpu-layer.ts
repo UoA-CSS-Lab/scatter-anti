@@ -15,6 +15,7 @@ import type {
   ScreenBrushRect,
   BrushOptions,
 } from '../types.js';
+import { DEFAULT_VISIBLE_POINT_LIMIT } from '../constants.js';
 
 /** render uniform buffer サイズ（selection style フィールドを含む, byte） */
 const RENDER_UNIFORM_SIZE = 176;
@@ -163,7 +164,7 @@ export class GpuLayer {
   /** 背景色 */
   private backgroundColor: Color4f = { r: 0, g: 0, b: 0, a: 0 };
   /** 表示可能なポイントの最大数 */
-  private visiblePointLimit: number = 5000000;
+  private visiblePointLimit: number = DEFAULT_VISIBLE_POINT_LIMIT;
   /** フィルタリング結果が有効かどうか */
   private filterResultValid: boolean = false;
 
@@ -188,7 +189,7 @@ export class GpuLayer {
     this.canvas = options.canvas;
     this.context = new WebGPUContext();
     this.backgroundColor = options.backgroundColor ?? { r: 0, g: 0, b: 0, a: 0 };
-    this.visiblePointLimit = options.visiblePointLimit ?? 5000000;
+    this.visiblePointLimit = options.visiblePointLimit ?? DEFAULT_VISIBLE_POINT_LIMIT;
     this.pointAlpha = Math.max(0, Math.min(1, options.pointAlpha ?? 1.0));
     this.pointSizeScale = Math.max(0.01, options.pointSizeScale ?? 1.0);
     this.selectionStyle = this.resolveSelectionStyle(options.selectionStyle);

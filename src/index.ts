@@ -23,6 +23,9 @@ export type {
   ScreenBrushRect,
   BrushOptions,
   SelectionStyle,
+  // Update introspection types
+  ScatterPlotUpdatePath,
+  ScatterPlotUpdatePlan,
   // Error handling types
   ErrorSeverity,
   ErrorCategory,
@@ -34,6 +37,11 @@ export type {
   LabelHoverCallback,
 } from './types.js';
 
+export {
+  MAX_GPU_FILTER_COLUMNS,
+  GPU_FILTER_COLUMN_COMPONENTS,
+  DEFAULT_VISIBLE_POINT_LIMIT,
+} from './constants.js';
 export { diagnoseWebGPU } from './diagnostics.js';
 export type { WebGPUDiagnostics } from './diagnostics.js';
 

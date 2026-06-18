@@ -11,6 +11,8 @@ import type {
   BrushBounds,
   ScreenBrushRect,
   BrushOptions,
+  ScatterPlotUpdatePath,
+  ScatterPlotUpdatePlan,
 } from './types.js';
 import { DataLayer, type ParquetData } from './data/index.js';
 import { GpuLayer } from './renderer/index.js';
@@ -34,7 +36,12 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   private readonly dataSource: string | File | ArrayBuffer;
   private readonly labelSource?: string | File | ArrayBuffer;
   private readonly onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
-  private readonly initialGpuWhereConditions?: GpuWhereCondition[];
+  /** 直近に指定された gpuWhereConditions（gpuFilterColumns 変更時に新 mapping で再解決するため保持） */
+  private currentGpuWhereConditions: GpuWhereCondition[] = [];
+  /** 直近に CONFIG_WARNING を出した「未登録 column 集合」のキー（hot path での重複 emit 抑制） */
+  private lastIgnoredGpuWhereColumnsKey = '';
+  /** 直近の update() が通った更新経路（getLastUpdatePlan 用） */
+  private lastUpdatePlan: ScatterPlotUpdatePlan | null = null;
   private readonly initialFilteredPointDisplayMode?: FilteredPointDisplayMode;
 
   /** GPUフィルターカラム名→インデックスのマッピング */
@@ -84,7 +91,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     this.dataSource = dataSource;
     this.labelSource = options.labels?.file ?? options.labels?.url;
     this.onDatabaseReady = options.onDatabaseReady;
-    this.initialGpuWhereConditions = options.data.gpuWhereConditions;
+    this.currentGpuWhereConditions = options.data.gpuWhereConditions ?? [];
     this.initialFilteredPointDisplayMode = options.data.filteredPointDisplayMode;
   }
 
@@ -102,8 +109,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
       }
 
-      if (this.initialGpuWhereConditions !== undefined) {
-        const conditions = this.convertGpuWhereConditions(this.initialGpuWhereConditions);
+      if (this.currentGpuWhereConditions.length > 0) {
+        const conditions = this.convertGpuWhereConditions(this.currentGpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
         this.dataLayer.setGpuFilterRanges(conditions);
       }
@@ -310,7 +317,13 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param options 更新する設定オプション
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
+    const updatePaths = new Set<ScatterPlotUpdatePath>();
     if (options.data !== undefined) {
+      const gpuWhereConditionsChanged = options.data.gpuWhereConditions !== undefined;
+      if (gpuWhereConditionsChanged) {
+        this.currentGpuWhereConditions = options.data.gpuWhereConditions ?? [];
+      }
+
       const result = await this.dataLayer.updateOptions({
         sizeSql: options.data.sizeSql,
         colorSql: options.data.colorSql,
@@ -318,7 +331,15 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         gpuFilterColumns: options.data.gpuFilterColumns,
       });
 
+      if (result.allPointsChanged) {
+        updatePaths.add('duckdb-all-points');
+        updatePaths.add('duckdb-visibility-flags');
+      } else if (result.visibilityChanged) {
+        updatePaths.add('duckdb-visibility-flags');
+      }
+
       if (result.gpuFilterColumnsChanged) {
+        updatePaths.add('gpu-filter-columns-buffer');
         const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
         if (gpuFilterData) {
           this.gpuLayer.uploadFilterColumns(gpuFilterData.data);
@@ -328,14 +349,18 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         }
       }
 
-      if (options.data.gpuWhereConditions !== undefined) {
-        const conditions = this.convertGpuWhereConditions(options.data.gpuWhereConditions);
+      // gpuFilterColumns が変わったときも、保持中の gpuWhereConditions を新しい mapping で
+      // 再解決する。古い columnIndex が残ったまま別カラムを誤フィルタするのを防ぐ。
+      if (result.gpuFilterColumnsChanged || gpuWhereConditionsChanged) {
+        const conditions = this.convertGpuWhereConditions(this.currentGpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
         this.dataLayer.setGpuFilterRanges(conditions);
+        updatePaths.add('gpu-filter-uniforms');
       }
 
       if (options.data.filteredPointDisplayMode !== undefined) {
         this.gpuLayer.setFilteredPointDisplayMode(options.data.filteredPointDisplayMode);
+        updatePaths.add('gpu-filter-uniforms');
       }
     }
 
@@ -347,6 +372,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         pointSizeScale: options.gpu?.pointSizeScale,
         selectionStyle: options.gpu?.selection,
       });
+      updatePaths.add('gpu-render-uniforms');
     }
 
     if (options.labels !== undefined) {
@@ -361,6 +387,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (labelSource !== undefined) {
         await this.loadLabelSource(labelSource);
       }
+      updatePaths.add('label-layer');
     }
 
     if (options.interaction !== undefined) {
@@ -368,9 +395,45 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         onPointHover: options.interaction?.onPointHover,
         onLabelHover: options.interaction.onLabelHover,
       });
+      updatePaths.add('interaction-callbacks');
     }
 
+    this.lastUpdatePlan = this.buildUpdatePlan(updatePaths);
     this.render();
+  }
+
+  /**
+   * 直近の update() が通った DuckDB/GPU/label 更新経路を取得する。
+   * 性能調査や UI 側のデバッグ用。update() 未実行の場合は null。
+   */
+  getLastUpdatePlan(): ScatterPlotUpdatePlan | null {
+    if (!this.lastUpdatePlan) {
+      return null;
+    }
+    return { ...this.lastUpdatePlan, paths: [...this.lastUpdatePlan.paths] };
+  }
+
+  private buildUpdatePlan(pathsSet: Set<ScatterPlotUpdatePath>): ScatterPlotUpdatePlan {
+    const orderedPaths: ScatterPlotUpdatePath[] = [
+      'duckdb-all-points',
+      'duckdb-visibility-flags',
+      'gpu-filter-columns-buffer',
+      'gpu-filter-uniforms',
+      'gpu-render-uniforms',
+      'label-layer',
+      'interaction-callbacks',
+    ];
+    const paths = orderedPaths.filter((path) => pathsSet.has(path));
+    return {
+      paths,
+      duckdbAllPointsReload: pathsSet.has('duckdb-all-points'),
+      duckdbVisibilityReload: pathsSet.has('duckdb-visibility-flags'),
+      gpuFilterColumnUpload: pathsSet.has('gpu-filter-columns-buffer'),
+      gpuFilterUniformUpdate: pathsSet.has('gpu-filter-uniforms'),
+      gpuRenderUniformUpdate: pathsSet.has('gpu-render-uniforms'),
+      labelLayerUpdate: pathsSet.has('label-layer'),
+      interactionUpdate: pathsSet.has('interaction-callbacks'),
+    };
   }
 
   /**
@@ -488,6 +551,13 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     max: number;
     fade?: { width: number; edges: 'both' | 'min' | 'max' };
   }[] {
+    const ignoredColumns = Array.from(
+      new Set(
+        conditions.filter((c) => !this.gpuFilterColumnMapping.has(c.column)).map((c) => c.column)
+      )
+    );
+    this.warnIgnoredGpuWhereColumns(ignoredColumns);
+
     return conditions
       .filter((c) => this.gpuFilterColumnMapping.has(c.column))
       .map((c) => {
@@ -506,6 +576,35 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         }
         return converted;
       });
+  }
+
+  /**
+   * gpuFilterColumns に未登録の gpuWhereConditions.column を CONFIG_WARNING で通知する。
+   * 時間窓スライダ等が毎フレーム update() を呼ぶ hot path のため、未登録 column 集合が
+   * 前回と変わったときだけ emit する（同一警告の氾濫を防ぐ）。正常化したらキーをクリアし、
+   * 次に異常が起きたときに再度 emit できるようにする。
+   */
+  private warnIgnoredGpuWhereColumns(ignoredColumns: string[]): void {
+    const key = JSON.stringify(ignoredColumns.slice().sort());
+    if (key === this.lastIgnoredGpuWhereColumnsKey) {
+      return;
+    }
+    this.lastIgnoredGpuWhereColumnsKey = key;
+    if (ignoredColumns.length === 0) {
+      return;
+    }
+    this.emitError(
+      createError(
+        'CONFIG_WARNING',
+        'Some gpuWhereConditions were ignored because their columns are not registered in gpuFilterColumns.',
+        {
+          context: {
+            ignoredColumns,
+            availableGpuFilterColumns: [...this.gpuFilterColumnMapping.keys()],
+          },
+        }
+      )
+    );
   }
 
   /**
