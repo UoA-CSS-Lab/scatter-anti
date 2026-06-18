@@ -82,6 +82,11 @@ jobs:
         with:
           path: dist
           key: dist-${{ github.sha }}
+      # Guard the workspace that is ACTUALLY published: if the dist cache restore
+      # above did not populate dist/ (cache miss / cache service issue), fail here
+      # instead of publishing a tarball without build output.
+      - name: Verify build output ships in the npm tarball
+        run: node scripts/check-package-files.mjs
       - run: npm publish --registry ${{ matrix.registry-url }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ matrix.registry-url == 'https://npm.pkg.github.com' && secrets.GITHUB_TOKEN || secrets.NPMJS_TOKEN }}
