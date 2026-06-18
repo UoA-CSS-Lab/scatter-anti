@@ -183,6 +183,8 @@ export class GpuLayer {
   private pointSizeScale: number = 1.0;
   /** selection 描画スタイル */
   private selectionStyle: Required<SelectionStyle> = DEFAULT_SELECTION_STYLE;
+  /** 選択点が0でも選択 dim を強制するか（ブラシ操作開始時に背景を即 dim する用） */
+  private forceSelectionActive = false;
 
   /**
    * GpuLayerインスタンスを作成する
@@ -797,7 +799,7 @@ export class GpuLayer {
     renderFloatView[40] = this.selectionStyle.unselectedAlpha;
     renderFloatView[41] = this.selectionStyle.selectedSizeScale;
     renderFloatView[42] = this.selectionStyle.highlightSelected ? 1.0 : 0.0; // selectionHighlight @168
-    // [43] = padding
+    renderFloatView[43] = this.forceSelectionActive ? 1.0 : 0.0; // forceSelectionActive @172
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
     // フィルター済みポイント用ユニフォーム（grayedMode = 1.0）
@@ -1202,6 +1204,16 @@ export class GpuLayer {
    */
   setSelectionStyle(style: SelectionStyle): void {
     this.selectionStyle = this.resolveSelectionStyle({ ...this.selectionStyle, ...style });
+    this.updateUniforms();
+  }
+
+  /**
+   * 選択 dim を強制的に有効/無効にする。選択点が0でも true なら全点を dim 表示にする。
+   * ブラシ操作の開始時（まだ何も選択されていない瞬間）に背景を即 dim したいとき用。
+   * 選択が1点以上あるときは selectionCount ゲートで常に有効なのでこのフラグは無関係。
+   */
+  setBrushActive(active: boolean): void {
+    this.forceSelectionActive = active;
     this.updateUniforms();
   }
 

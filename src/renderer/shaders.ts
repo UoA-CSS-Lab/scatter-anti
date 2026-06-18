@@ -212,7 +212,7 @@ struct Uniforms {
   selectionUnselectedAlpha: f32,    // 非選択点の alpha 係数（selection 有効時）
   selectionSelectedSizeScale: f32,  // 選択点のサイズ倍率
   selectionHighlight: f32,          // 1=選択点を強調（色+サイズ）, 0=元の色・サイズを保持（dim-only）
-  _selectionPad1: f32,
+  forceSelectionActive: f32,        // 1=選択点が0でも選択 dim を強制（ブラシ操作中など）
 }
 
 struct VertexOutput {
@@ -230,10 +230,11 @@ struct VertexOutput {
 @group(0) @binding(5) var<storage, read> selectionCount: array<u32>;
 @group(0) @binding(6) var<storage, read> hoverFlags: array<u32>;
 
-// selection が有効か（1点以上選択されているか）。空 selection では強調/減衰しない
-// （空 brush で全点が薄くなるバグを防ぐ）。
+// selection が有効か（1点以上選択されている、または forceSelectionActive で明示的に有効化）。
+// 空 selection では通常は強調/減衰しない（空 brush で全点が薄くなるバグを防ぐ）が、
+// forceSelectionActive=1 のときはブラシ操作中などとして 0 選択でも dim を有効にする。
 fn isSelectionActive() -> bool {
-  return selectionCount[0] > 0u;
+  return selectionCount[0] > 0u || uniforms.forceSelectionActive > 0.5;
 }
 
 fn isSelected(pointIdx: u32) -> bool {
