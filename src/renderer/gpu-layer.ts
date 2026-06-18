@@ -118,6 +118,8 @@ export class GpuLayer {
   private selectionFlagsBuffer: GPUBuffer | null = null;
   /** selection bit 数（render の強調/減衰ゲート用, u32×1） */
   private selectionCountBuffer: GPUBuffer | null = null;
+  /** GPU 常駐 hover bitset（1bit/point）。ホバー中クラスタのノードを selection dim から除外して強調。selection とは独立 */
+  private hoverFlagsBuffer: GPUBuffer | null = null;
   /** brush compute 用 uniform バッファ */
   private brushUniformBuffer: GPUBuffer | null = null;
   /** count compute 用 uniform バッファ */
@@ -437,6 +439,14 @@ export class GpuLayer {
     // 初期状態は全 bit 0（未選択）
     this.context.device.queue.writeBuffer(this.selectionFlagsBuffer, 0, new Uint32Array(wordCount));
 
+    // hover-mask bitset（selection と同型・別バッファ）。点集合が変わるたびに作り直してクリアする。
+    this.hoverFlagsBuffer?.destroy();
+    this.hoverFlagsBuffer = this.context.device.createBuffer({
+      size: wordCount * 4,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    this.context.device.queue.writeBuffer(this.hoverFlagsBuffer, 0, new Uint32Array(wordCount));
+
     if (!this.selectionCountBuffer) {
       this.selectionCountBuffer = this.context.device.createBuffer({
         size: 4,
@@ -490,6 +500,7 @@ export class GpuLayer {
       !this.countSelectionPipeline ||
       !this.selectionFlagsBuffer ||
       !this.selectionCountBuffer ||
+      !this.hoverFlagsBuffer ||
       !this.brushUniformBuffer ||
       !this.countUniformBuffer
     ) {
@@ -535,6 +546,7 @@ export class GpuLayer {
         { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
         { binding: 4, resource: { buffer: this.selectionFlagsBuffer } },
         { binding: 5, resource: { buffer: this.selectionCountBuffer } },
+        { binding: 6, resource: { buffer: this.hoverFlagsBuffer } },
       ],
     });
 
@@ -547,6 +559,7 @@ export class GpuLayer {
         { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
         { binding: 4, resource: { buffer: this.selectionFlagsBuffer } },
         { binding: 5, resource: { buffer: this.selectionCountBuffer } },
+        { binding: 6, resource: { buffer: this.hoverFlagsBuffer } },
       ],
     });
 
@@ -1295,6 +1308,36 @@ export class GpuLayer {
   }
 
   /**
+   * ポイント ID（= rowid = バッファ index）集合で hover-mask を設定する。
+   * selection とは独立した別 bitset で、ホバー中クラスタのノードを selection dim から
+   * 除外して元の明度に戻す（＝強調）。空集合（または clearHover）で解除。
+   * GPU 常駐 selection を一切触らないため getSelectionCount / brush / 投稿リストを汚染しない。
+   */
+  setHoveredPointIds(ids: Iterable<number>): void {
+    if (!this.context.device || !this.hoverFlagsBuffer) return;
+
+    const wordCount = Math.max(1, Math.ceil(this.totalPointCount / 32));
+    const bitset = new Uint32Array(wordCount);
+    for (const id of ids) {
+      if (id >= 0 && id < this.totalPointCount) {
+        const w = id >>> 5;
+        const mask = 1 << (id & 31);
+        bitset[w] |= mask;
+      }
+    }
+    this.context.device.queue.writeBuffer(this.hoverFlagsBuffer, 0, bitset);
+  }
+
+  /**
+   * hover-mask を全クリアする（selection には影響しない）。
+   */
+  clearHover(): void {
+    if (!this.context.device || !this.hoverFlagsBuffer) return;
+    const wordCount = Math.max(1, Math.ceil(this.totalPointCount / 32));
+    this.context.device.queue.writeBuffer(this.hoverFlagsBuffer, 0, new Uint32Array(wordCount));
+  }
+
+  /**
    * 現在の selection 数を取得する（GPU からの非同期読み戻し）。
    */
   async getSelectionCount(): Promise<number> {
@@ -1390,6 +1433,7 @@ export class GpuLayer {
     this.filteredRenderUniformBuffer?.destroy();
     this.selectionFlagsBuffer?.destroy();
     this.selectionCountBuffer?.destroy();
+    this.hoverFlagsBuffer?.destroy();
     this.brushUniformBuffer?.destroy();
     this.countUniformBuffer?.destroy();
     this.context.destroy();

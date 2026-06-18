@@ -122,6 +122,13 @@ GPU 常駐の選択マスク（1 bit/point）を矩形ブラシや ID 指定で�
 * `setSelectionStyle(style)`: 選択の描画スタイルを更新
 * `getSelectionCount()`: 現在の選択数を取得（`Promise<number>`）
 
+**ホバーマスク（クラスタ強調）API（selection とは独立）:**
+
+選択の dim 表示中に、ホバー中クラスタのノードだけを dim 解除して強調するための GPU 常駐マスク（1 bit/point）。selection とは別バッファで、`getSelectionCount()` / ブラシ / 選択状態を一切汚染しません。
+
+* `setHoveredPointIds(ids)`: ポイント ID（rowid）集合を hover-mask に設定（該当点の selection dim を解除し元の明度へ戻す）
+* `clearHover()`: hover-mask を全クリア（selection には影響しない）
+
 **ホバー制御API:**
 
 外部コンポーネントからプログラム的にホバー状態を制御できます。
@@ -248,6 +255,10 @@ const n = await plot.getSelectionCount();
 // 選択解除 / スタイル変更
 plot.clearSelection();
 plot.setSelectionStyle({ selectedColor: { r: 1, g: 0.2, b: 0.2, a: 1 }, unselectedAlpha: 0.15 });
+
+// hover-mask: 選択の dim 中、ホバー中クラスタのノードだけ dim を解除して強調（selection とは独立）
+plot.setHoveredPointIds([2, 5, 9]);
+plot.clearHover();
 ```
 
 **`BrushOptions`:**

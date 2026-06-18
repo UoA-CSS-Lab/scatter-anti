@@ -787,6 +787,25 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
+   * ポイント ID（rowid）集合で hover-mask を設定する（selection とは独立）。
+   * ホバー中クラスタのノードを selection dim から除外して強調する。空集合 / clearHover で解除。
+   * selection（getSelectionCount / brush 等）には一切影響しない。
+   * @param ids 強調するポイント ID（= rowid）
+   */
+  setHoveredPointIds(ids: Iterable<number>): void {
+    this.gpuLayer.setHoveredPointIds(ids);
+    this.render();
+  }
+
+  /**
+   * hover-mask を全クリアする（selection には影響しない）。
+   */
+  clearHover(): void {
+    this.gpuLayer.clearHover();
+    this.render();
+  }
+
+  /**
    * selection の描画スタイルを更新する（部分指定可）。
    * @param style selectedColor / unselectedAlpha / selectedSizeScale
    */
