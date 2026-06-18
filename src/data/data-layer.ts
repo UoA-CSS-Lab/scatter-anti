@@ -5,6 +5,7 @@ import type { WhereCondition, ScatterPlotError } from '../types.js';
 import { createError } from '../errors.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 import { SpatialPointIndex } from './spatial-index.js';
+import { GPU_FILTER_COLUMN_COMPONENTS, MAX_GPU_FILTER_COLUMNS } from '../constants.js';
 
 /**
  * DataLayerの設定オプション
@@ -16,7 +17,7 @@ export interface DataLayerOptions {
   colorSql?: string;
   /** データフィルタリング用のWHERE条件 */
   whereConditions?: WhereCondition[];
-  /** GPUでフィルタリングするカラム名（最大4つ） */
+  /** GPUでフィルタリングするカラム名（最大4つ。超過分は無視される） */
   gpuFilterColumns?: string[];
   /** エラーをScatterPlotに通知するためのコールバック */
   onError?: (error: ScatterPlotError) => void;
@@ -24,6 +25,19 @@ export interface DataLayerOptions {
   onDataChanged?: () => void | Promise<void>;
   /** WHERE条件変更時にビジビリティフラグ更新が必要な場合のコールバック */
   onVisibilityChanged?: () => void | Promise<void>;
+}
+
+/**
+ * DataLayer.updateOptions が発生させた DuckDB/GPU データ境界の更新内容。
+ * 実際の GPU upload は ScatterPlot 側で行う。
+ */
+export interface DataLayerUpdateResult {
+  /** sizeSql/colorSql 変更により x/y/size/color の再 materialize が必要になった */
+  allPointsChanged: boolean;
+  /** whereConditions 変更により visibility bitmap の再生成が必要になった */
+  visibilityChanged: boolean;
+  /** gpuFilterColumns 変更により GPU filter column buffer の再アップロードが必要になった */
+  gpuFilterColumnsChanged: boolean;
 }
 
 /**
@@ -69,7 +83,7 @@ export class DataLayer {
 
   /** WhereConditionから生成されたビジビリティフラグのキャッシュ（WHERE条件なし時は空） */
   private visibilityFlags = new Uint32Array(0);
-  /** GPUフィルターカラムデータのキャッシュ（4値/ポイント） */
+  /** GPUフィルターカラムデータのキャッシュ（最大4値/ポイント） */
   private filterColumnData = new Float32Array(0);
   /** 現在のGPUフィルターレンジ（スライダーで高頻度更新） */
   private gpuFilterRanges: { columnIndex: number; min: number; max: number }[] = [];
@@ -81,13 +95,39 @@ export class DataLayer {
    * @param options 設定オプション
    */
   constructor(options: DataLayerOptions) {
+    this.onError = options.onError;
     this.sizeSql = options.sizeSql ?? this.sizeSql;
     this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
-    this.gpuFilterColumns = options.gpuFilterColumns ?? [];
-    this.onError = options.onError;
+    this.gpuFilterColumns = this.normalizeGpuFilterColumns(options.gpuFilterColumns);
     this.onDataChanged = options.onDataChanged;
     this.onVisibilityChanged = options.onVisibilityChanged;
+  }
+
+  /**
+   * GPU filter columns は shader/buffer の fast path として vec4 に packing する。
+   * 現状は最大4列に制限し、超過分は明示的に警告して落とす。
+   */
+  private normalizeGpuFilterColumns(columns: string[] | undefined): string[] {
+    const requestedColumns = columns ?? [];
+    if (requestedColumns.length <= MAX_GPU_FILTER_COLUMNS) {
+      return [...requestedColumns];
+    }
+
+    const usedColumns = requestedColumns.slice(0, MAX_GPU_FILTER_COLUMNS);
+    const ignoredColumns = requestedColumns.slice(MAX_GPU_FILTER_COLUMNS);
+    if (this.onError) {
+      this.onError(
+        createError(
+          'CONFIG_WARNING',
+          `gpuFilterColumns accepts at most ${MAX_GPU_FILTER_COLUMNS} columns; extra columns were ignored.`,
+          {
+            context: { maxGpuFilterColumns: MAX_GPU_FILTER_COLUMNS, usedColumns, ignoredColumns },
+          }
+        )
+      );
+    }
+    return usedColumns;
   }
 
   /**
@@ -223,7 +263,7 @@ export class DataLayer {
       return null;
     }
 
-    const columns = this.gpuFilterColumns.slice(0, 4);
+    const columns = this.gpuFilterColumns.slice(0, MAX_GPU_FILTER_COLUMNS);
 
     try {
       const columnSelects = columns
@@ -241,11 +281,11 @@ export class DataLayer {
         return null;
       }
 
-      const filterData = new Float32Array(data.rowCount * 4);
+      const filterData = new Float32Array(data.rowCount * GPU_FILTER_COLUMN_COMPONENTS);
 
       for (let i = 0; i < data.rowCount; i++) {
-        const baseIndex = i * 4;
-        for (let j = 0; j < 4; j++) {
+        const baseIndex = i * GPU_FILTER_COLUMN_COMPONENTS;
+        for (let j = 0; j < GPU_FILTER_COLUMN_COMPONENTS; j++) {
           if (j < columns.length) {
             const colData = data.columnData.get(`__filter_col_${j}__`)!;
             filterData[baseIndex + j] = colData.get(i);
@@ -355,9 +395,7 @@ export class DataLayer {
    * @param options 更新する設定オプション
    * @returns 変更の種類を示すオブジェクト
    */
-  async updateOptions(options: Partial<DataLayerOptions>): Promise<{
-    gpuFilterColumnsChanged: boolean;
-  }> {
+  async updateOptions(options: Partial<DataLayerOptions>): Promise<DataLayerUpdateResult> {
     let needsFullReload = false;
     let needsVisibilityUpdate = false;
     let gpuFilterColumnsChanged = false;
@@ -380,10 +418,11 @@ export class DataLayer {
       }
     }
     if (options.gpuFilterColumns !== undefined) {
+      const nextColumns = this.normalizeGpuFilterColumns(options.gpuFilterColumns);
       const oldColumns = this.gpuFilterColumns.join(',');
-      const newColumns = options.gpuFilterColumns.join(',');
+      const newColumns = nextColumns.join(',');
       if (oldColumns !== newColumns) {
-        this.gpuFilterColumns = options.gpuFilterColumns;
+        this.gpuFilterColumns = nextColumns;
         gpuFilterColumnsChanged = true;
       }
     }
@@ -400,7 +439,11 @@ export class DataLayer {
       await this.onVisibilityChanged();
     }
 
-    return { gpuFilterColumnsChanged };
+    return {
+      allPointsChanged: needsFullReload,
+      visibilityChanged: needsVisibilityUpdate,
+      gpuFilterColumnsChanged,
+    };
   }
 
   /**

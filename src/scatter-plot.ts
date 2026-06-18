@@ -7,6 +7,8 @@ import type {
   LabelIdentifier,
   GpuWhereCondition,
   FilteredPointDisplayMode,
+  ScatterPlotUpdatePath,
+  ScatterPlotUpdatePlan,
 } from './types.js';
 import { DataLayer, type ParquetData } from './data/index.js';
 import { GpuLayer } from './renderer/index.js';
@@ -34,6 +36,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   private currentGpuWhereConditions: GpuWhereCondition[] = [];
   /** 直近に CONFIG_WARNING を出した「未登録 column 集合」のキー（hot path での重複 emit 抑制） */
   private lastIgnoredGpuWhereColumnsKey = '';
+  /** 直近の update() が通った更新経路（getLastUpdatePlan 用） */
+  private lastUpdatePlan: ScatterPlotUpdatePlan | null = null;
   private readonly initialFilteredPointDisplayMode?: FilteredPointDisplayMode;
 
   /** GPUフィルターカラム名→インデックスのマッピング */
@@ -308,6 +312,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    * @param options 更新する設定オプション
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
+    const updatePaths = new Set<ScatterPlotUpdatePath>();
     if (options.data !== undefined) {
       const gpuWhereConditionsChanged = options.data.gpuWhereConditions !== undefined;
       if (gpuWhereConditionsChanged) {
@@ -321,7 +326,15 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         gpuFilterColumns: options.data.gpuFilterColumns,
       });
 
+      if (result.allPointsChanged) {
+        updatePaths.add('duckdb-all-points');
+        updatePaths.add('duckdb-visibility-flags');
+      } else if (result.visibilityChanged) {
+        updatePaths.add('duckdb-visibility-flags');
+      }
+
       if (result.gpuFilterColumnsChanged) {
+        updatePaths.add('gpu-filter-columns-buffer');
         const gpuFilterData = await this.dataLayer.loadGpuFilterColumns();
         if (gpuFilterData) {
           this.gpuLayer.uploadFilterColumns(gpuFilterData.data);
@@ -337,10 +350,12 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         const conditions = this.convertGpuWhereConditions(this.currentGpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
         this.dataLayer.setGpuFilterRanges(conditions);
+        updatePaths.add('gpu-filter-uniforms');
       }
 
       if (options.data.filteredPointDisplayMode !== undefined) {
         this.gpuLayer.setFilteredPointDisplayMode(options.data.filteredPointDisplayMode);
+        updatePaths.add('gpu-filter-uniforms');
       }
     }
 
@@ -351,6 +366,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         pointAlpha: options.gpu?.pointAlpha,
         pointSizeScale: options.gpu?.pointSizeScale,
       });
+      updatePaths.add('gpu-render-uniforms');
     }
 
     if (options.labels !== undefined) {
@@ -365,6 +381,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       if (labelSource !== undefined) {
         await this.loadLabelSource(labelSource);
       }
+      updatePaths.add('label-layer');
     }
 
     if (options.interaction !== undefined) {
@@ -372,9 +389,45 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         onPointHover: options.interaction?.onPointHover,
         onLabelHover: options.interaction.onLabelHover,
       });
+      updatePaths.add('interaction-callbacks');
     }
 
+    this.lastUpdatePlan = this.buildUpdatePlan(updatePaths);
     this.render();
+  }
+
+  /**
+   * 直近の update() が通った DuckDB/GPU/label 更新経路を取得する。
+   * 性能調査や UI 側のデバッグ用。update() 未実行の場合は null。
+   */
+  getLastUpdatePlan(): ScatterPlotUpdatePlan | null {
+    if (!this.lastUpdatePlan) {
+      return null;
+    }
+    return { ...this.lastUpdatePlan, paths: [...this.lastUpdatePlan.paths] };
+  }
+
+  private buildUpdatePlan(pathsSet: Set<ScatterPlotUpdatePath>): ScatterPlotUpdatePlan {
+    const orderedPaths: ScatterPlotUpdatePath[] = [
+      'duckdb-all-points',
+      'duckdb-visibility-flags',
+      'gpu-filter-columns-buffer',
+      'gpu-filter-uniforms',
+      'gpu-render-uniforms',
+      'label-layer',
+      'interaction-callbacks',
+    ];
+    const paths = orderedPaths.filter((path) => pathsSet.has(path));
+    return {
+      paths,
+      duckdbAllPointsReload: pathsSet.has('duckdb-all-points'),
+      duckdbVisibilityReload: pathsSet.has('duckdb-visibility-flags'),
+      gpuFilterColumnUpload: pathsSet.has('gpu-filter-columns-buffer'),
+      gpuFilterUniformUpdate: pathsSet.has('gpu-filter-uniforms'),
+      gpuRenderUniformUpdate: pathsSet.has('gpu-render-uniforms'),
+      labelLayerUpdate: pathsSet.has('label-layer'),
+      interactionUpdate: pathsSet.has('interaction-callbacks'),
+    };
   }
 
   /**
