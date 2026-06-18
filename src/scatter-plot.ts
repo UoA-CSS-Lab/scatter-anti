@@ -820,6 +820,17 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
+   * 選択 dim を強制的に有効/無効にする。選択点が0でも true なら全点を dim 表示にする。
+   * ブラシ選択の開始時（右ドラッグ開始など、まだ点が捕捉されていない瞬間）に背景を即 dim
+   * したいとき用。ジェスチャ終了時に false へ戻すこと。選択が1点以上あるときは無関係。
+   * @param active true で選択 dim を強制
+   */
+  setBrushActive(active: boolean): void {
+    this.gpuLayer.setBrushActive(active);
+    this.render();
+  }
+
+  /**
    * 現在の selection 数を取得する（GPU からの非同期読み戻し）。
    */
   async getSelectionCount(): Promise<number> {

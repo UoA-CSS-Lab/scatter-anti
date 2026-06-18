@@ -121,6 +121,7 @@ GPU 常駐の選択マスク（1 bit/point）を矩形ブラシや ID 指定で�
 * `clearSelection()`: 選択を全クリア
 * `setSelectionStyle(style)`: 選択の描画スタイルを更新
 * `getSelectionCount()`: 現在の選択数を取得（`Promise<number>`）
+* `setBrushActive(active)`: 選択点が0でも選択 dim を強制（ブラシ開始時に背景を即 dim、終了時に `false` へ戻す）
 
 **ホバーマスク（クラスタ強調）API（selection とは独立）:**
 
@@ -259,6 +260,10 @@ plot.setSelectionStyle({ selectedColor: { r: 1, g: 0.2, b: 0.2, a: 1 }, unselect
 // hover-mask: 選択の dim 中、ホバー中クラスタのノードだけ dim を解除して強調（selection とは独立）
 plot.setHoveredPointIds([2, 5, 9]);
 plot.clearHover();
+
+// ブラシ操作の開始/終了で「選択 dim」を即時に出す/消す（0 選択でも背景を dim）
+plot.setBrushActive(true);   // 右ドラッグ開始時など
+plot.setBrushActive(false);  // ジェスチャ終了時
 ```
 
 **`BrushOptions`:**
