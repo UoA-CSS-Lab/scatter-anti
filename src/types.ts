@@ -111,6 +111,43 @@ export interface GpuWhereCondition {
 /** フィルターされたポイントの表示モード */
 export type FilteredPointDisplayMode = 'hidden' | 'grayed';
 
+/** update() が実際に通った処理経路 */
+export type ScatterPlotUpdatePath =
+  /** sizeSql/colorSql の変更により DuckDB で x/y/size/color を再 materialize した */
+  | 'duckdb-all-points'
+  /** whereConditions の変更、または全点再読込に伴い DuckDB で visibility bitmap を更新した */
+  | 'duckdb-visibility-flags'
+  /** gpuFilterColumns の変更により GPU filter column buffer を再アップロードした */
+  | 'gpu-filter-columns-buffer'
+  /** gpuWhereConditions/filteredPointDisplayMode の変更により GPU filter uniforms を更新した */
+  | 'gpu-filter-uniforms'
+  /** GPU 描画オプションまたは visiblePointLimit の変更により render/compute uniforms を更新した */
+  | 'gpu-render-uniforms'
+  /** ラベルレイヤーの設定またはデータを更新した */
+  | 'label-layer'
+  /** interaction callback を更新した */
+  | 'interaction-callbacks';
+
+/** update() の直近実行で使われた CPU/DuckDB/GPU 更新経路 */
+export interface ScatterPlotUpdatePlan {
+  /** 実行された処理経路。重複なし、概ねコストが高い順。 */
+  paths: ScatterPlotUpdatePath[];
+  /** DuckDB query により x/y/size/color の GPU 用 point buffer を再構築した */
+  duckdbAllPointsReload: boolean;
+  /** DuckDB query により whereConditions 用 visibility bitmap を更新した */
+  duckdbVisibilityReload: boolean;
+  /** GPU filter column buffer を再アップロードした */
+  gpuFilterColumnUpload: boolean;
+  /** GPU filter 条件または filtered point 表示モードの uniform を更新した */
+  gpuFilterUniformUpdate: boolean;
+  /** background/alpha/size scale/LOD などの GPU uniform を更新した */
+  gpuRenderUniformUpdate: boolean;
+  /** ラベルレイヤーを更新した */
+  labelLayerUpdate: boolean;
+  /** interaction callback を更新した */
+  interactionUpdate: boolean;
+}
+
 export interface DataOptions {
   /** レンダリングする表示ポイントの最大数 */
   visiblePointLimit?: number;
@@ -120,7 +157,11 @@ export interface DataOptions {
   colorSql?: string;
   /** データをフィルタリングするWHERE条件（ANDのみ） */
   whereConditions?: WhereCondition[];
-  /** GPUでフィルタリングするカラム名 (最大4つ) */
+  /**
+   * GPUでフィルタリングするカラム名 (最大4つ)。超過分は無視され CONFIG_WARNING が発火する。
+   * 初期設定での警告は `initialize()` 時に発火するため、observe するには `initialize()` より前に
+   * `on('error', ...)` を登録すること（構築後の `update()` での警告は即時発火）。
+   */
   gpuFilterColumns?: string[];
   /** GPU側で実行するフィルター条件 */
   gpuWhereConditions?: GpuWhereCondition[];

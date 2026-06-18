@@ -98,6 +98,7 @@ await plot.initialize();
 * `setPan(x, y)` / `getPan()` / `pan(dx, dy)`: パン操作
 * `resetView()`: ビューリセット
 * `update(options)`: オプション更新
+* `getLastUpdatePlan()`: 直近の `update()` が DuckDB / GPU / label のどの更新経路を通ったかを取得
 * `runQuery(sql)`: カスタムSQLクエリ実行
 * `getLabels()`: ラベル全件取得
 * `destroy()`: リソース解放
@@ -191,6 +192,29 @@ await plot.update({
 * `width`: 端のランプ幅（`column` と同じ単位、`> 0`。`0` 以下でフェード無効）
 * `edges`: フェードする端（`'both'`（既定） / `'min'` / `'max'`）。`min`/`max` を省略した
   無限端は自動的にフェード無効。
+
+> `gpuFilterColumns` は最大 4 列です。5 列目以降は無視され、`CONFIG_WARNING` イベントが発火します。
+
+## 更新経路の確認
+
+`update()` の実行後、`getLastUpdatePlan()` でその更新がどの経路を通ったかを確認できます。
+UI 操作が DuckDB の再クエリを伴うのか、GPU uniform 更新だけで済んだのかをデバッグできます。
+
+```typescript
+await plot.update({ data: { gpuWhereConditions: [{ column: 'frequency', min: 500 }] } });
+console.log(plot.getLastUpdatePlan()?.paths);
+// ['gpu-filter-uniforms']
+```
+
+| 経路 | 意味 |
+|---|---|
+| `duckdb-all-points` | `sizeSql` / `colorSql` 変更により DuckDB で GPU 用 point buffer を再生成 |
+| `duckdb-visibility-flags` | `whereConditions` 変更により DuckDB で visibility bitmap を再生成 |
+| `gpu-filter-columns-buffer` | `gpuFilterColumns` 変更により GPU filter column buffer を再アップロード |
+| `gpu-filter-uniforms` | `gpuWhereConditions` / `filteredPointDisplayMode` 変更。高頻度操作向け |
+| `gpu-render-uniforms` | 背景色・透明度・サイズスケール・`visiblePointLimit` などの更新 |
+| `label-layer` | ラベル設定またはラベルデータの更新 |
+| `interaction-callbacks` | hover などの callback 更新 |
 
 ## 型定義
 

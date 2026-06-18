@@ -5,6 +5,7 @@ import type { WhereCondition, ScatterPlotError } from '../types.js';
 import { createError } from '../errors.js';
 import type { AllPointsData } from '../renderer/gpu-layer.js';
 import { SpatialPointIndex } from './spatial-index.js';
+import { GPU_FILTER_COLUMN_COMPONENTS, MAX_GPU_FILTER_COLUMNS } from '../constants.js';
 
 /**
  * DataLayerの設定オプション
@@ -16,7 +17,7 @@ export interface DataLayerOptions {
   colorSql?: string;
   /** データフィルタリング用のWHERE条件 */
   whereConditions?: WhereCondition[];
-  /** GPUでフィルタリングするカラム名（最大4つ） */
+  /** GPUでフィルタリングするカラム名（最大4つ。超過分は無視される） */
   gpuFilterColumns?: string[];
   /** エラーをScatterPlotに通知するためのコールバック */
   onError?: (error: ScatterPlotError) => void;
@@ -24,6 +25,19 @@ export interface DataLayerOptions {
   onDataChanged?: () => void | Promise<void>;
   /** WHERE条件変更時にビジビリティフラグ更新が必要な場合のコールバック */
   onVisibilityChanged?: () => void | Promise<void>;
+}
+
+/**
+ * DataLayer.updateOptions が発生させた DuckDB/GPU データ境界の更新内容。
+ * 実際の GPU upload は ScatterPlot 側で行う。
+ */
+export interface DataLayerUpdateResult {
+  /** sizeSql/colorSql 変更により x/y/size/color の再 materialize が必要になった */
+  allPointsChanged: boolean;
+  /** whereConditions 変更により visibility bitmap の再生成が必要になった */
+  visibilityChanged: boolean;
+  /** gpuFilterColumns 変更により GPU filter column buffer の再アップロードが必要になった */
+  gpuFilterColumnsChanged: boolean;
 }
 
 /**
@@ -59,6 +73,12 @@ export class DataLayer {
   private onDataChanged?: () => void | Promise<void>;
   /** WHERE条件変更時のビジビリティ更新コールバック */
   private onVisibilityChanged?: () => void | Promise<void>;
+  /**
+   * 構築時に検出したが、まだ発火していない設定警告（gpuFilterColumns 超過など）。
+   * ScatterPlot のコンストラクタ内では consumer がまだ on('error') を登録できないため、
+   * リスナーが attach 済みになる initialize() まで発火を遅延させる。
+   */
+  private pendingConfigWarning: ScatterPlotError | null = null;
 
   /** 全ポイントデータのキャッシュ（ポイント検索用、SoA形式） */
   private pointsCache: PointsCache = {
@@ -69,7 +89,7 @@ export class DataLayer {
 
   /** WhereConditionから生成されたビジビリティフラグのキャッシュ（WHERE条件なし時は空） */
   private visibilityFlags = new Uint32Array(0);
-  /** GPUフィルターカラムデータのキャッシュ（4値/ポイント） */
+  /** GPUフィルターカラムデータのキャッシュ（最大4値/ポイント） */
   private filterColumnData = new Float32Array(0);
   /** 現在のGPUフィルターレンジ（スライダーで高頻度更新） */
   private gpuFilterRanges: { columnIndex: number; min: number; max: number }[] = [];
@@ -81,13 +101,57 @@ export class DataLayer {
    * @param options 設定オプション
    */
   constructor(options: DataLayerOptions) {
+    this.onError = options.onError;
     this.sizeSql = options.sizeSql ?? this.sizeSql;
     this.colorSql = options.colorSql ?? this.colorSql;
     this.whereConditions = options.whereConditions ?? [];
-    this.gpuFilterColumns = options.gpuFilterColumns ?? [];
-    this.onError = options.onError;
+    const capped = this.capGpuFilterColumns(options.gpuFilterColumns);
+    this.gpuFilterColumns = capped.columns;
+    // 構築時点では consumer がまだ on('error') を登録できない（コンストラクタ内）ため、
+    // 警告の発火は initialize() まで遅延する。リスナー登録後の updateOptions は即時発火。
+    this.pendingConfigWarning = capped.warning;
     this.onDataChanged = options.onDataChanged;
     this.onVisibilityChanged = options.onVisibilityChanged;
+  }
+
+  /**
+   * GPU filter columns は shader/buffer の fast path として vec4 に packing するため
+   * 最大 MAX_GPU_FILTER_COLUMNS 列に制限する。capping した列と、超過時に発火すべき
+   * CONFIG_WARNING を返す。副作用は持たず、警告の発火タイミングは呼び出し側に委ねる
+   * （構築時は遅延、updateOptions では即時）。
+   */
+  private capGpuFilterColumns(columns: string[] | undefined): {
+    columns: string[];
+    warning: ScatterPlotError | null;
+  } {
+    const requestedColumns = columns ?? [];
+    if (requestedColumns.length <= MAX_GPU_FILTER_COLUMNS) {
+      return { columns: [...requestedColumns], warning: null };
+    }
+
+    const usedColumns = requestedColumns.slice(0, MAX_GPU_FILTER_COLUMNS);
+    const ignoredColumns = requestedColumns.slice(MAX_GPU_FILTER_COLUMNS);
+    const warning = createError(
+      'CONFIG_WARNING',
+      `gpuFilterColumns accepts at most ${MAX_GPU_FILTER_COLUMNS} columns; extra columns were ignored.`,
+      {
+        context: { maxGpuFilterColumns: MAX_GPU_FILTER_COLUMNS, usedColumns, ignoredColumns },
+      }
+    );
+    return { columns: usedColumns, warning };
+  }
+
+  /**
+   * 構築時に保留した設定警告を発行する。ScatterPlot のコンストラクタ内ではリスナーを
+   * 登録できないため、リスナーが attach 済みになる initialize() の時点まで遅延させている。
+   * 一度発火したらクリアし、二重発火しない。
+   */
+  private flushPendingConfigWarning(): void {
+    const warning = this.pendingConfigWarning;
+    this.pendingConfigWarning = null;
+    if (warning && this.onError) {
+      this.onError(warning);
+    }
   }
 
   /**
@@ -99,6 +163,8 @@ export class DataLayer {
     source: string | ArrayBuffer | File,
     onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>
   ): Promise<AllPointsData> {
+    // 構築時に保留した設定警告を、リスナーが登録済みのこの時点で発行する
+    this.flushPendingConfigWarning();
     this.repository = await createParquetReader();
     if (typeof source === 'string') {
       await this.repository.loadParquetFromUrl(source);
@@ -223,7 +289,7 @@ export class DataLayer {
       return null;
     }
 
-    const columns = this.gpuFilterColumns.slice(0, 4);
+    const columns = this.gpuFilterColumns.slice(0, MAX_GPU_FILTER_COLUMNS);
 
     try {
       const columnSelects = columns
@@ -241,11 +307,11 @@ export class DataLayer {
         return null;
       }
 
-      const filterData = new Float32Array(data.rowCount * 4);
+      const filterData = new Float32Array(data.rowCount * GPU_FILTER_COLUMN_COMPONENTS);
 
       for (let i = 0; i < data.rowCount; i++) {
-        const baseIndex = i * 4;
-        for (let j = 0; j < 4; j++) {
+        const baseIndex = i * GPU_FILTER_COLUMN_COMPONENTS;
+        for (let j = 0; j < GPU_FILTER_COLUMN_COMPONENTS; j++) {
           if (j < columns.length) {
             const colData = data.columnData.get(`__filter_col_${j}__`)!;
             filterData[baseIndex + j] = colData.get(i);
@@ -355,9 +421,7 @@ export class DataLayer {
    * @param options 更新する設定オプション
    * @returns 変更の種類を示すオブジェクト
    */
-  async updateOptions(options: Partial<DataLayerOptions>): Promise<{
-    gpuFilterColumnsChanged: boolean;
-  }> {
+  async updateOptions(options: Partial<DataLayerOptions>): Promise<DataLayerUpdateResult> {
     let needsFullReload = false;
     let needsVisibilityUpdate = false;
     let gpuFilterColumnsChanged = false;
@@ -380,10 +444,19 @@ export class DataLayer {
       }
     }
     if (options.gpuFilterColumns !== undefined) {
+      const capped = this.capGpuFilterColumns(options.gpuFilterColumns);
+      // この更新が gpuFilterColumns を上書きするため、構築時に保留した警告は破棄する。
+      // （未 initialize の状態でこれが呼ばれても、後続の flush で古い設定の警告が
+      //   二重発火しないようにする。現在の設定に対する警告は下で即時発火する。）
+      this.pendingConfigWarning = null;
+      // 構築後の更新では consumer が on('error') を登録済みなので即時発火してよい
+      if (capped.warning && this.onError) {
+        this.onError(capped.warning);
+      }
       const oldColumns = this.gpuFilterColumns.join(',');
-      const newColumns = options.gpuFilterColumns.join(',');
+      const newColumns = capped.columns.join(',');
       if (oldColumns !== newColumns) {
-        this.gpuFilterColumns = options.gpuFilterColumns;
+        this.gpuFilterColumns = capped.columns;
         gpuFilterColumnsChanged = true;
       }
     }
@@ -400,7 +473,11 @@ export class DataLayer {
       await this.onVisibilityChanged();
     }
 
-    return { gpuFilterColumnsChanged };
+    return {
+      allPointsChanged: needsFullReload,
+      visibilityChanged: needsVisibilityUpdate,
+      gpuFilterColumnsChanged,
+    };
   }
 
   /**
