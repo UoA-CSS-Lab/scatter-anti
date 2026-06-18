@@ -250,20 +250,20 @@ export class LabelLayer {
               this.labelContext.strokeStyle = 'white';
             }
             this.labelContext.lineWidth = 2;
-          } else if (
-            this.unmatchedLabelOpacity !== undefined &&
-            label.properties?.color &&
-            Array.isArray(label.properties.color) &&
-            label.properties.color.length === 3
-          ) {
-            // dim-only: グレー化せず元のクラスタ色を保持して opacity だけ下げる
-            // （ノードの dim-only 選択と視覚を揃える）。
-            const [r, g, b] = label.properties.color as number[];
+          } else if (this.unmatchedLabelOpacity !== undefined) {
+            // dim-only: グレー化や非表示ではなく opacity だけ下げる（ノードの dim-only 選択と
+            // 視覚を揃える）。色を持つラベルは元のクラスタ色を保持し、color 配列を持たない
+            // 標準ラベル（generate_labels.py の cluster_label/cluster/count のみ）でも要求 opacity
+            // を尊重する（中立グレーを同じ opacity で適用）。
             const a = this.unmatchedLabelOpacity;
+            const col = label.properties?.color;
+            const hasColor = Array.isArray(col) && col.length === 3;
             this.labelContext.shadowColor = 'transparent';
             this.labelContext.shadowBlur = 0;
             this.labelContext.fillStyle = `rgba(255, 255, 255, ${a})`;
-            this.labelContext.strokeStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
+            this.labelContext.strokeStyle = hasColor
+              ? `rgba(${col[0]}, ${col[1]}, ${col[2]}, ${a})`
+              : `rgba(100, 100, 100, ${a})`;
             this.labelContext.lineWidth = 2;
           } else {
             this.labelContext.shadowColor = 'rgba(0, 0, 0, 0.3)';
