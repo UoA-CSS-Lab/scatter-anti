@@ -118,9 +118,8 @@ export type SelectionBrushMode = 'replace' | 'add' | 'subtract' | 'toggle';
  * brush の対象集合。
  * - 'filtered-data'（既定）: 現在の whereConditions / gpuWhereConditions を通過した点のみ選択
  * - 'all-data': フィルタ状態に関係なく全点を選択対象にする
- * - 'visible-lod': LOD で実際に描画されている点のみ選択対象にする
  */
-export type SelectionBrushTarget = 'all-data' | 'filtered-data' | 'visible-lod';
+export type SelectionBrushTarget = 'all-data' | 'filtered-data';
 
 /** データ空間での矩形 brush 範囲（順序は任意で、内部で min/max に正規化される） */
 export interface BrushBounds {

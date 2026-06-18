@@ -207,6 +207,12 @@ struct Uniforms {
   filterRangeMin: vec4<f32>,  // フィルタ下端（= フェード窓の下端）
   filterRangeMax: vec4<f32>,  // フィルタ上端（= フェード窓の上端）
   fadeWidth: vec4<f32>,       // 列ごとの端ランプ幅（0 = フェード無効）
+  // --- selection / brushing ---
+  selectionColor: vec4<f32>,        // 選択点の色
+  selectionUnselectedAlpha: f32,    // 非選択点の alpha 係数（selection 有効時）
+  selectionSelectedSizeScale: f32,  // 選択点のサイズ倍率
+  _selectionPad0: f32,
+  _selectionPad1: f32,
 }
 
 struct VertexOutput {
@@ -220,6 +226,20 @@ struct VertexOutput {
 @group(0) @binding(1) var<storage, read> allPoints: array<Point>;
 @group(0) @binding(2) var<storage, read> visibleIndices: array<u32>;
 @group(0) @binding(3) var<storage, read> filterColumns: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read> selectionFlags: array<u32>;
+@group(0) @binding(5) var<storage, read> selectionCount: array<u32>;
+
+// selection が有効か（1点以上選択されているか）。空 selection では強調/減衰しない
+// （空 brush で全点が薄くなるバグを防ぐ）。
+fn isSelectionActive() -> bool {
+  return selectionCount[0] > 0u;
+}
+
+fn isSelected(pointIdx: u32) -> bool {
+  let wordIndex = pointIdx / 32u;
+  let bitIndex = pointIdx % 32u;
+  return (selectionFlags[wordIndex] & (1u << bitIndex)) != 0u;
+}
 
 // 1列ぶんの soft-edge フェード係数。width<=0 で 1.0（無効）。
 // fadeMin/fadeMax はそれぞれ下端/上端でランプするか。無限端は clamp により自動で 1.0。
@@ -282,7 +302,15 @@ fn vertexMain(
   let pixelToClipY = 2.0 / uniforms.viewportHeight;
   let zoomScale = uniforms.zoomScale;
 
-  let scaledSize = point.size * uniforms.pointSizeScale;
+  let selectionActive = isSelectionActive();
+  let selected = selectionActive && isSelected(pointIdx);
+
+  var effectiveSizeScale = uniforms.pointSizeScale;
+  if (uniforms.grayedMode <= 0.5 && selected) {
+    effectiveSizeScale = effectiveSizeScale * uniforms.selectionSelectedSizeScale;
+  }
+
+  let scaledSize = point.size * effectiveSizeScale;
   let offsetClip = vec2<f32>(
     quadPosition.x * scaledSize * pixelToClipX * zoomScale,
     quadPosition.y * scaledSize * pixelToClipY * zoomScale
@@ -293,7 +321,15 @@ fn vertexMain(
   if (uniforms.grayedMode > 0.5) {
     output.color = vec4<f32>(0.6, 0.6, 0.6, 0.35);
   } else {
-    output.color = unpackColor(point.color);
+    var color = unpackColor(point.color);
+    if (selectionActive) {
+      if (selected) {
+        color = uniforms.selectionColor;
+      } else {
+        color = vec4<f32>(color.rgb, color.a * uniforms.selectionUnselectedAlpha);
+      }
+    }
+    output.color = color;
   }
 
   output.pointCoord = (quadPosition + 1.0) * 0.5;
@@ -314,5 +350,118 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let alpha = smoothstep(0.25, 0.23, distSq);
 
   return vec4<f32>(input.color.rgb, input.color.a * alpha * uniforms.pointAlpha * input.fadeAlpha);
+}
+`;
+
+/**
+ * データ空間矩形に基づき GPU 常駐 selection bitset（1bit/point）を更新するコンピュートシェーダー。
+ * CPU へ読み戻さず render shader から直接参照する。target='filtered-data' のときは
+ * whereConditions の visibility bitmap と gpuWhereConditions の range も考慮し、
+ * フィルタを通過していない点は brush の内外に関わらず選択対象外とする。
+ */
+export const brushSelectionShader = `
+struct Point {
+  x: f32,
+  y: f32,
+  color: u32,
+  size: f32,
+}
+
+struct BrushUniforms {
+  brushMin: vec2<f32>,
+  brushMax: vec2<f32>,
+  filterRangeMin: vec4<f32>,
+  filterRangeMax: vec4<f32>,
+  totalPoints: u32,
+  mode: u32,             // 0=replace, 1=add, 2=subtract, 3=toggle
+  applyFilter: u32,      // 1=filtered-data（visibility/gpuWhere を考慮）, 0=all-data
+  activeFilterMask: u32, // gpuWhere の有効列ビットマスク
+  whereFilterEnabled: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
+}
+
+@group(0) @binding(0) var<storage, read> allPoints: array<Point>;
+@group(0) @binding(1) var<storage, read_write> selectionFlags: array<atomic<u32>>;
+@group(0) @binding(2) var<uniform> uniforms: BrushUniforms;
+@group(0) @binding(3) var<storage, read> filterColumns: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read> visibilityFlags: array<u32>;
+
+// target='filtered-data' のとき、点 idx が現在のフィルタを通過しているか判定する。
+fn passesFilter(idx: u32) -> bool {
+  if (uniforms.applyFilter == 0u) {
+    return true;
+  }
+  // whereConditions（DuckDB 側）由来の可視ビットマップ
+  if (uniforms.whereFilterEnabled != 0u) {
+    let word = visibilityFlags[idx / 32u];
+    if ((word & (1u << (idx % 32u))) == 0u) {
+      return false;
+    }
+  }
+  // gpuWhereConditions（range フィルタ）
+  if (uniforms.activeFilterMask != 0u) {
+    let fc = filterColumns[idx];
+    if ((uniforms.activeFilterMask & 1u) != 0u && (fc.x < uniforms.filterRangeMin.x || fc.x > uniforms.filterRangeMax.x)) { return false; }
+    if ((uniforms.activeFilterMask & 2u) != 0u && (fc.y < uniforms.filterRangeMin.y || fc.y > uniforms.filterRangeMax.y)) { return false; }
+    if ((uniforms.activeFilterMask & 4u) != 0u && (fc.z < uniforms.filterRangeMin.z || fc.z > uniforms.filterRangeMax.z)) { return false; }
+    if ((uniforms.activeFilterMask & 8u) != 0u && (fc.w < uniforms.filterRangeMin.w || fc.w > uniforms.filterRangeMax.w)) { return false; }
+  }
+  return true;
+}
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
+  let idx = globalId.x;
+  if (idx >= uniforms.totalPoints) {
+    return;
+  }
+  let p = allPoints[idx];
+  var inside = p.x >= uniforms.brushMin.x && p.x <= uniforms.brushMax.x &&
+               p.y >= uniforms.brushMin.y && p.y <= uniforms.brushMax.y;
+  if (inside && !passesFilter(idx)) {
+    inside = false;
+  }
+  let wordIndex = idx / 32u;
+  let mask = 1u << (idx % 32u);
+  // mode ごとの合成。replace は内側を立て・外側を落とす（毎回 bitset を上書き）。
+  if (uniforms.mode == 0u) {
+    if (inside) { atomicOr(&selectionFlags[wordIndex], mask); }
+    else { atomicAnd(&selectionFlags[wordIndex], ~mask); }
+  } else if (uniforms.mode == 1u) {
+    if (inside) { atomicOr(&selectionFlags[wordIndex], mask); }
+  } else if (uniforms.mode == 2u) {
+    if (inside) { atomicAnd(&selectionFlags[wordIndex], ~mask); }
+  } else if (uniforms.mode == 3u) {
+    if (inside) { atomicXor(&selectionFlags[wordIndex], mask); }
+  }
+}
+`;
+
+/**
+ * selection bitset の立っている bit 数を GPU 上で集計し selectionCount[0] に書く。
+ * render shader はこの値を見て「1点以上選択時のみ」強調/減衰する（空 brush 後に
+ * 全点が薄くなるのを防ぐ）。dispatch 前に selectionCount を 0 にリセットしておくこと。
+ */
+export const countSelectionShader = `
+struct CountUniforms {
+  wordCount: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
+}
+
+@group(0) @binding(0) var<storage, read> selectionFlags: array<u32>;
+@group(0) @binding(1) var<storage, read_write> selectionCount: atomic<u32>;
+@group(0) @binding(2) var<uniform> uniforms: CountUniforms;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
+  let i = globalId.x;
+  if (i >= uniforms.wordCount) {
+    return;
+  }
+  atomicAdd(&selectionCount, countOneBits(selectionFlags[i]));
 }
 `;
