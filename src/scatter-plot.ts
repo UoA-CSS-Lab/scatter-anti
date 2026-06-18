@@ -345,6 +345,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         visiblePointLimit: options.data?.visiblePointLimit,
         pointAlpha: options.gpu?.pointAlpha,
         pointSizeScale: options.gpu?.pointSizeScale,
+        selectionStyle: options.gpu?.selection,
       });
     }
 

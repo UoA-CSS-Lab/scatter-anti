@@ -576,6 +576,7 @@ export class GpuLayer {
     if (!this.context.device) return;
 
     const newTotalCount = data.totalCount;
+    const countChanged = newTotalCount !== this.totalPointCount;
 
     if (newTotalCount > this.totalPointCount) {
       this.allPointsBuffer?.destroy();
@@ -611,10 +612,16 @@ export class GpuLayer {
       initialFlags.fill(0xffffffff);
       this.context.device.queue.writeBuffer(this.visibilityFlagsBuffer, 0, initialFlags);
       this.whereFilterEnabled = false;
+    }
 
-      // selection も新サイズで作り直す（選択はクリアされる）
+    if (countChanged) {
+      // ポイント集合が変わった（増減いずれも）。selection は index(rowid) ベースのため無効化し、
+      // bitset / count / countUniform を新しい totalCount に合わせて作り直してクリアする。
+      // 縮小時に作り直さないと、旧 bitset の範囲外 bit が count されて getSelectionCount() が
+      // 過大になり、存在しない点の減衰が残ってしまう（同一カウントの再 materialize 時は
+      // rowid が不変なので selection を保持する）。createBindGroups は拡大時に作り直した
+      // 大バッファと新しい selection バッファの両方を rebind する。
       this.createSelectionBuffers(newTotalCount);
-
       this.createBindGroups();
     }
 
@@ -1017,6 +1024,14 @@ export class GpuLayer {
     }
     if (options.pointSizeScale !== undefined) {
       this.pointSizeScale = Math.max(0.01, options.pointSizeScale);
+      needsUniformUpdate = true;
+    }
+    if (options.selectionStyle !== undefined) {
+      // 部分指定をマージして既定値で埋める（render uniform 経由で反映）
+      this.selectionStyle = this.resolveSelectionStyle({
+        ...this.selectionStyle,
+        ...options.selectionStyle,
+      });
       needsUniformUpdate = true;
     }
 
