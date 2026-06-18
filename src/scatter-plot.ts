@@ -691,11 +691,16 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   }
 
   /**
-   * すべてのホバー状態をクリアする（ポイントとラベルの両方）
+   * すべてのホバー状態をクリアする（ポイント・ラベル・GPU hover-mask）
    */
   clearAllHover(): void {
     this.labelLayer.setHoveredPoint(null);
     this.labelLayer.setHoveredLabel(null);
+    // GPU hover-mask も解除する。さもないと setHoveredPointIds で立てた bit が残り、
+    // 選択 dim 下で当該 rowid が undim のまま居残る／次に選択が有効化されたとき undim で再出現する。
+    // LabelLayer の同期 render はラベルキャンバスのみ再描画するため、点の再描画に this.render() が要る。
+    this.gpuLayer.clearHover();
+    this.render();
   }
 
   /**
