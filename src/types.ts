@@ -240,6 +240,11 @@ export interface LabelOptions {
   fontSize?: number;
   /** プロパティに基づいてラベルの表示を制御するフィルター関数 */
   filterLambda?: LabelFilterLambda;
+  /**
+   * filterLambda が false の「非マッチ」ラベルの不透明度（0-1）。指定すると非マッチラベルを
+   * グレー化せず元のクラスタ色のまま opacity を下げて描画する（dim-only）。未指定はグレー表示。
+   */
+  unmatchedLabelOpacity?: number;
   /** ラベルがクリックされた時に発火するコールバック */
   onClick?: (label: Label) => void;
   /** ポイントホバーアウトラインの外観オプション */

@@ -21,6 +21,12 @@ export interface LabelLayerOptions {
   labelFontSize?: number;
   /** ラベルのフィルタリング関数 */
   filterLambda?: LabelFilterLambda;
+  /**
+   * filterLambda が false を返した「非マッチ」ラベルの不透明度（0-1）。指定すると非マッチ
+   * ラベルをグレー化せず、元のクラスタ色のまま opacity だけ下げて描画する（dim-only）。
+   * 未指定時は従来どおりグレー表示。
+   */
+  unmatchedLabelOpacity?: number;
   /** ラベルクリック時のコールバック */
   onLabelClick?: (label: Label) => void;
   /** ポイントホバー時のコールバック */
@@ -52,6 +58,8 @@ export class LabelLayer {
   private labelFontSize: number = 12;
   /** ラベルフィルタリング関数 */
   private filterLambda?: LabelFilterLambda;
+  /** 非マッチラベルの dim opacity（指定時は元色を保持して減衰、未指定はグレー表示） */
+  private unmatchedLabelOpacity?: number;
 
   /** 現在のズーム倍率 */
   private zoom: number = 1.0;
@@ -103,6 +111,7 @@ export class LabelLayer {
     this.minLabelDistance = options.minLabelDistance ?? this.minLabelDistance;
     this.labelFontSize = options.labelFontSize ?? this.labelFontSize;
     this.filterLambda = options.filterLambda;
+    this.unmatchedLabelOpacity = options.unmatchedLabelOpacity;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
     this.onLabelHover = options.onLabelHover;
@@ -240,6 +249,21 @@ export class LabelLayer {
             } else {
               this.labelContext.strokeStyle = 'white';
             }
+            this.labelContext.lineWidth = 2;
+          } else if (this.unmatchedLabelOpacity !== undefined) {
+            // dim-only: グレー化や非表示ではなく opacity だけ下げる（ノードの dim-only 選択と
+            // 視覚を揃える）。色を持つラベルは元のクラスタ色を保持し、color 配列を持たない
+            // 標準ラベル（generate_labels.py の cluster_label/cluster/count のみ）でも要求 opacity
+            // を尊重する（中立グレーを同じ opacity で適用）。
+            const a = this.unmatchedLabelOpacity;
+            const col = label.properties?.color;
+            const hasColor = Array.isArray(col) && col.length === 3;
+            this.labelContext.shadowColor = 'transparent';
+            this.labelContext.shadowBlur = 0;
+            this.labelContext.fillStyle = `rgba(255, 255, 255, ${a})`;
+            this.labelContext.strokeStyle = hasColor
+              ? `rgba(${col[0]}, ${col[1]}, ${col[2]}, ${a})`
+              : `rgba(100, 100, 100, ${a})`;
             this.labelContext.lineWidth = 2;
           } else {
             this.labelContext.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -533,6 +557,9 @@ export class LabelLayer {
     }
     if (options.filterLambda !== undefined) {
       this.filterLambda = options.filterLambda;
+    }
+    if (options.unmatchedLabelOpacity !== undefined) {
+      this.unmatchedLabelOpacity = options.unmatchedLabelOpacity;
     }
     if (options.onLabelClick !== undefined) {
       this.onLabelClick = options.onLabelClick;

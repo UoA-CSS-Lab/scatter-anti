@@ -76,7 +76,8 @@ const plot = new ScatterPlot({
   labels?: {
     url?: string,                             // GeoJSONファイルのURL
     fontSize?: number,                        // フォントサイズ（デフォルト: 12）
-    filterLambda?: LabelFilterLambda,         // ラベル表示フィルタ
+    filterLambda?: LabelFilterLambda,         // ラベル表示フィルタ（false=非マッチ）
+    unmatchedLabelOpacity?: number,           // 非マッチラベルをグレー化せず元色のまま dim（0-1）
     onClick?: (label: Label) => void,         // クリックコールバック
     hoverOutlineOptions?: HoverOutlineOptions, // ホバーアウトライン設定
   },
