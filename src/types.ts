@@ -151,8 +151,15 @@ export interface SelectionStyle {
   selectedColor?: Color4f;
   /** selection 有効時の非選択ポイント alpha 係数（0.0-1.0、既定 0.25） */
   unselectedAlpha?: number;
-  /** 選択済みポイントのサイズ倍率（既定 1.35） */
+  /** 選択済みポイントのサイズ倍率（既定 1.35、highlightSelected が true のときのみ適用） */
   selectedSizeScale?: number;
+  /**
+   * 選択点を強調表示するか（既定 true）。true のとき選択点を selectedColor で塗り替え、
+   * selectedSizeScale でサイズも拡大する。false にすると選択点は色もサイズも元のまま保持し、
+   * 非選択点の減衰（unselectedAlpha）のみ行う＝クラスタ配色などを保ったまま「非選択を
+   * 暗くする」dim-only 表示になる。
+   */
+  highlightSelected?: boolean;
 }
 
 /** update() が実際に通った処理経路 */

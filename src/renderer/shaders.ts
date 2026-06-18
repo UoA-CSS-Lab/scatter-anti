@@ -211,7 +211,7 @@ struct Uniforms {
   selectionColor: vec4<f32>,        // 選択点の色
   selectionUnselectedAlpha: f32,    // 非選択点の alpha 係数（selection 有効時）
   selectionSelectedSizeScale: f32,  // 選択点のサイズ倍率
-  _selectionPad0: f32,
+  selectionHighlight: f32,          // 1=選択点を強調（色+サイズ）, 0=元の色・サイズを保持（dim-only）
   _selectionPad1: f32,
 }
 
@@ -306,7 +306,8 @@ fn vertexMain(
   let selected = selectionActive && isSelected(pointIdx);
 
   var effectiveSizeScale = uniforms.pointSizeScale;
-  if (uniforms.grayedMode <= 0.5 && selected) {
+  // highlightSelected=true のときだけ選択点を強調する。dim-only（=0）では色もサイズも変えない。
+  if (uniforms.grayedMode <= 0.5 && selected && uniforms.selectionHighlight > 0.5) {
     effectiveSizeScale = effectiveSizeScale * uniforms.selectionSelectedSizeScale;
   }
 
@@ -323,9 +324,9 @@ fn vertexMain(
   } else {
     var color = unpackColor(point.color);
     if (selectionActive) {
-      if (selected) {
+      if (selected && uniforms.selectionHighlight > 0.5) {
         color = uniforms.selectionColor;
-      } else {
+      } else if (!selected) {
         color = vec4<f32>(color.rgb, color.a * uniforms.selectionUnselectedAlpha);
       }
     }
