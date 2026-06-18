@@ -38,6 +38,8 @@ jobs:
       - run: npm install --prefix examples/next
       - name: build
         run: npm run build
+      - name: Verify build output ships in the npm tarball
+        run: node scripts/check-package-files.mjs
       - name: lint
         run: npm run lint:all
       - name: test
