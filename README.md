@@ -109,6 +109,17 @@ await plot.initialize();
 * `setPointSizeScale(scale)`: グローバルサイズスケールを設定
 * `getPointSizeScale()`: 現在のグローバルサイズスケールを取得
 
+**選択（ブラシ）API:**
+
+GPU 常駐の選択マスク（1 bit/point）を矩形ブラシや ID 指定で操作します（詳細は「ブラシ選択（Selection）」節を参照）。
+
+* `brushSelect(bounds, options?)`: データ空間矩形で選択を更新
+* `brushSelectScreenRect(rect, options?)`: キャンバス画面座標（物理px）矩形で選択を更新
+* `setSelectedPointIds(ids)`: ポイント ID（rowid）集合で選択を直接設定
+* `clearSelection()`: 選択を全クリア
+* `setSelectionStyle(style)`: 選択の描画スタイルを更新
+* `getSelectionCount()`: 現在の選択数を取得（`Promise<number>`）
+
 **ホバー制御API:**
 
 外部コンポーネントからプログラム的にホバー状態を制御できます。
@@ -191,6 +202,47 @@ await plot.update({
 * `width`: 端のランプ幅（`column` と同じ単位、`> 0`。`0` 以下でフェード無効）
 * `edges`: フェードする端（`'both'`（既定） / `'min'` / `'max'`）。`min`/`max` を省略した
   無限端は自動的にフェード無効。
+
+## ブラシ選択（Selection）
+
+矩形ブラシで点集合を選択し、GPU 常駐の選択マスク（1 bit/point）として保持できます。選択状態は GPU 上のビットセットに直接書き込まれ、CPU へ読み戻さずレンダリングに反映されるため、数百万点規模でも高速です。選択が 1 点以上あるときだけ選択点を強調色で描画し、非選択点を減衰させます（選択が空のときは通常表示のまま）。
+
+```typescript
+// データ空間の矩形で選択（既定: mode='replace' / target='filtered-data'）
+plot.brushSelect({ minX, maxX, minY, maxY });
+
+// キャンバス画面座標（物理ピクセル）の矩形で選択
+plot.brushSelectScreenRect({ x0, y0, x1, y1 }, { mode: 'add', target: 'all-data' });
+
+// ポイント ID（rowid）集合で直接選択
+plot.setSelectedPointIds([0, 12, 345]);
+
+// 選択数の取得（GPU からの非同期読み戻し）
+const n = await plot.getSelectionCount();
+
+// 選択解除 / スタイル変更
+plot.clearSelection();
+plot.setSelectionStyle({ selectedColor: { r: 1, g: 0.2, b: 0.2, a: 1 }, unselectedAlpha: 0.15 });
+```
+
+**`BrushOptions`:**
+
+* `mode`: 既存選択との合成方法
+  * `'replace'`（既定）: ブラシ内を選択し、ブラシ外を解除
+  * `'add'`: ブラシ内を選択に追加
+  * `'subtract'`: ブラシ内を選択から除外
+  * `'toggle'`: ブラシ内の選択状態を反転
+* `target`: 選択対象の集合
+  * `'filtered-data'`（既定）: 現在の `whereConditions` / `gpuWhereConditions` を通過した点のみ
+  * `'all-data'`: フィルタ状態に関係なく全点
+
+**`SelectionStyle`（コンストラクタの `gpu.selection` または `setSelectionStyle` で指定）:**
+
+* `selectedColor`: 選択点の色（既定: 黄系の強調色）
+* `unselectedAlpha`: 選択有効時の非選択点の alpha 係数（既定 `0.25`）
+* `selectedSizeScale`: 選択点のサイズ倍率（既定 `1.35`）
+
+> ポイント ID は Parquet の行順（rowid = ポイントバッファの index）に対応します。
 
 ## 型定義
 
