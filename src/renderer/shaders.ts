@@ -228,6 +228,7 @@ struct VertexOutput {
 @group(0) @binding(3) var<storage, read> filterColumns: array<vec4<f32>>;
 @group(0) @binding(4) var<storage, read> selectionFlags: array<u32>;
 @group(0) @binding(5) var<storage, read> selectionCount: array<u32>;
+@group(0) @binding(6) var<storage, read> hoverFlags: array<u32>;
 
 // selection が有効か（1点以上選択されているか）。空 selection では強調/減衰しない
 // （空 brush で全点が薄くなるバグを防ぐ）。
@@ -239,6 +240,14 @@ fn isSelected(pointIdx: u32) -> bool {
   let wordIndex = pointIdx / 32u;
   let bitIndex = pointIdx % 32u;
   return (selectionFlags[wordIndex] & (1u << bitIndex)) != 0u;
+}
+
+// hover-mask: ホバー中クラスタのノード（CPU で setHoveredPointIds 済み）。selection とは別 bitset。
+// hover は「selection dim を解除する」だけなので、空 bitset（全 0）なら自動的に無効＝ count ゲート不要。
+fn isHovered(pointIdx: u32) -> bool {
+  let wordIndex = pointIdx / 32u;
+  let bitIndex = pointIdx % 32u;
+  return (hoverFlags[wordIndex] & (1u << bitIndex)) != 0u;
 }
 
 // 1列ぶんの soft-edge フェード係数。width<=0 で 1.0（無効）。
@@ -304,6 +313,7 @@ fn vertexMain(
 
   let selectionActive = isSelectionActive();
   let selected = selectionActive && isSelected(pointIdx);
+  let hovered = isHovered(pointIdx);
 
   var effectiveSizeScale = uniforms.pointSizeScale;
   // highlightSelected=true のときだけ選択点を強調する。dim-only（=0）では色もサイズも変えない。
@@ -326,7 +336,8 @@ fn vertexMain(
     if (selectionActive) {
       if (selected && uniforms.selectionHighlight > 0.5) {
         color = uniforms.selectionColor;
-      } else if (!selected) {
+      } else if (!selected && !hovered) {
+        // 非選択かつ非ホバーのみ減衰。ホバー中の点は dim を解除して元の色・明度に戻す（＝強調）。
         color = vec4<f32>(color.rgb, color.a * uniforms.selectionUnselectedAlpha);
       }
     }
