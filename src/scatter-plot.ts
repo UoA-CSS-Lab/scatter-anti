@@ -30,7 +30,10 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
   private readonly dataSource: string | File | ArrayBuffer;
   private readonly labelSource?: string | File | ArrayBuffer;
   private readonly onDatabaseReady?: (conn: AsyncDuckDBConnection) => Promise<void>;
-  private readonly initialGpuWhereConditions?: GpuWhereCondition[];
+  /** 直近に指定された gpuWhereConditions（gpuFilterColumns 変更時に新 mapping で再解決するため保持） */
+  private currentGpuWhereConditions: GpuWhereCondition[] = [];
+  /** 直近に CONFIG_WARNING を出した「未登録 column 集合」のキー（hot path での重複 emit 抑制） */
+  private lastIgnoredGpuWhereColumnsKey = '';
   private readonly initialFilteredPointDisplayMode?: FilteredPointDisplayMode;
 
   /** GPUフィルターカラム名→インデックスのマッピング */
@@ -79,7 +82,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     this.dataSource = dataSource;
     this.labelSource = options.labels?.file ?? options.labels?.url;
     this.onDatabaseReady = options.onDatabaseReady;
-    this.initialGpuWhereConditions = options.data.gpuWhereConditions;
+    this.currentGpuWhereConditions = options.data.gpuWhereConditions ?? [];
     this.initialFilteredPointDisplayMode = options.data.filteredPointDisplayMode;
   }
 
@@ -97,8 +100,8 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         this.gpuFilterColumnMapping = gpuFilterData.columnMapping;
       }
 
-      if (this.initialGpuWhereConditions !== undefined) {
-        const conditions = this.convertGpuWhereConditions(this.initialGpuWhereConditions);
+      if (this.currentGpuWhereConditions.length > 0) {
+        const conditions = this.convertGpuWhereConditions(this.currentGpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
         this.dataLayer.setGpuFilterRanges(conditions);
       }
@@ -306,6 +309,11 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async update(options: Partial<ScatterPlotOptions>): Promise<void> {
     if (options.data !== undefined) {
+      const gpuWhereConditionsChanged = options.data.gpuWhereConditions !== undefined;
+      if (gpuWhereConditionsChanged) {
+        this.currentGpuWhereConditions = options.data.gpuWhereConditions ?? [];
+      }
+
       const result = await this.dataLayer.updateOptions({
         sizeSql: options.data.sizeSql,
         colorSql: options.data.colorSql,
@@ -323,8 +331,10 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         }
       }
 
-      if (options.data.gpuWhereConditions !== undefined) {
-        const conditions = this.convertGpuWhereConditions(options.data.gpuWhereConditions);
+      // gpuFilterColumns が変わったときも、保持中の gpuWhereConditions を新しい mapping で
+      // 再解決する。古い columnIndex が残ったまま別カラムを誤フィルタするのを防ぐ。
+      if (result.gpuFilterColumnsChanged || gpuWhereConditionsChanged) {
+        const conditions = this.convertGpuWhereConditions(this.currentGpuWhereConditions);
         this.gpuLayer.setGpuFilterConditions(conditions);
         this.dataLayer.setGpuFilterRanges(conditions);
       }
@@ -482,6 +492,13 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
     max: number;
     fade?: { width: number; edges: 'both' | 'min' | 'max' };
   }[] {
+    const ignoredColumns = Array.from(
+      new Set(
+        conditions.filter((c) => !this.gpuFilterColumnMapping.has(c.column)).map((c) => c.column)
+      )
+    );
+    this.warnIgnoredGpuWhereColumns(ignoredColumns);
+
     return conditions
       .filter((c) => this.gpuFilterColumnMapping.has(c.column))
       .map((c) => {
@@ -500,6 +517,35 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         }
         return converted;
       });
+  }
+
+  /**
+   * gpuFilterColumns に未登録の gpuWhereConditions.column を CONFIG_WARNING で通知する。
+   * 時間窓スライダ等が毎フレーム update() を呼ぶ hot path のため、未登録 column 集合が
+   * 前回と変わったときだけ emit する（同一警告の氾濫を防ぐ）。正常化したらキーをクリアし、
+   * 次に異常が起きたときに再度 emit できるようにする。
+   */
+  private warnIgnoredGpuWhereColumns(ignoredColumns: string[]): void {
+    const key = JSON.stringify(ignoredColumns.slice().sort());
+    if (key === this.lastIgnoredGpuWhereColumnsKey) {
+      return;
+    }
+    this.lastIgnoredGpuWhereColumnsKey = key;
+    if (ignoredColumns.length === 0) {
+      return;
+    }
+    this.emitError(
+      createError(
+        'CONFIG_WARNING',
+        'Some gpuWhereConditions were ignored because their columns are not registered in gpuFilterColumns.',
+        {
+          context: {
+            ignoredColumns,
+            availableGpuFilterColumns: [...this.gpuFilterColumnMapping.keys()],
+          },
+        }
+      )
+    );
   }
 
   /**

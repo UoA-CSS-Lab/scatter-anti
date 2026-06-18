@@ -197,7 +197,8 @@ export type ErrorCode =
   | 'DATA_LAYER_NOT_INITIALIZED'
   | 'PARQUET_LOAD_FAILED'
   | 'QUERY_FAILED'
-  | 'LABEL_FETCH_FAILED';
+  | 'LABEL_FETCH_FAILED'
+  | 'CONFIG_WARNING';
 
 /** エラーイベントペイロード */
 export interface ScatterPlotError {

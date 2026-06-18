@@ -231,7 +231,11 @@ export class DataLayer {
         .join(', ');
 
       const data = await this.repository!.query({
-        toString: () => `SELECT ${columnSelects} FROM parquet_data`,
+        // ORDER BY rowid: GPU filter column buffer の行順を loadAllPoints/loadVisibilityFlags
+        //（いずれも ORDER BY rowid）と揃える。これが無いと per-point の filter 値が point
+        // buffer と別順序になり、GPU range フィルタや fade（filterColumns[pointIdx] 参照）が
+        // 誤った行の値を読む潜在バグになる。
+        toString: () => `SELECT ${columnSelects} FROM parquet_data ORDER BY rowid`,
       });
       if (!data || data.rowCount === 0) {
         return null;
