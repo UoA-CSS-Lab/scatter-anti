@@ -79,6 +79,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       labelFontSize: options.labels?.fontSize,
       filterLambda: options.labels?.filterLambda,
       unmatchedLabelOpacity: options.labels?.unmatchedLabelOpacity,
+      maxRenderedLabels: options.labels?.maxRendered,
       onLabelClick: options.labels?.onClick,
       onPointHover: options.interaction?.onPointHover,
       onLabelHover: options.interaction?.onLabelHover,
@@ -382,6 +383,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         labelFontSize: options.labels.fontSize,
         filterLambda: options.labels.filterLambda,
         unmatchedLabelOpacity: options.labels.unmatchedLabelOpacity,
+        maxRenderedLabels: options.labels.maxRendered,
         onLabelClick: options.labels.onClick,
         hoverOutlineOptions: options.labels.hoverOutlineOptions,
       });
