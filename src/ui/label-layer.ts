@@ -85,6 +85,7 @@ export class LabelLayer {
     hoveredLabel: null as Label | null,
     hoveredPoint: null as Record<string, any> | null,
     maxRendered: -1,
+    hoverOutline: null as HoverOutlineOptions | null,
   };
 
   /** 現在のズーム倍率 */
@@ -216,7 +217,8 @@ export class LabelLayer {
       p.unmatched === this.unmatchedLabelOpacity &&
       p.hoveredLabel === this.hoveredLabel &&
       p.hoveredPoint === this.hoveredPoint &&
-      p.maxRendered === this.maxRenderedLabels
+      p.maxRendered === this.maxRenderedLabels &&
+      p.hoverOutline === this.hoverOutlineOptions
     ) {
       return;
     }
@@ -232,6 +234,7 @@ export class LabelLayer {
     p.hoveredLabel = this.hoveredLabel;
     p.hoveredPoint = this.hoveredPoint;
     p.maxRendered = this.maxRenderedLabels;
+    p.hoverOutline = this.hoverOutlineOptions;
 
     this.labelContext.clearRect(0, 0, this.labelCanvas.width, this.labelCanvas.height);
     this.renderedLabelBounds = [];
