@@ -245,6 +245,11 @@ export interface LabelOptions {
    * グレー化せず元のクラスタ色のまま opacity を下げて描画する（dim-only）。未指定はグレー表示。
    */
   unmatchedLabelOpacity?: number;
+  /**
+   * 描画するラベルの最大数（クラスタサイズの大きい順に上位 N 件のみ描画）。俯瞰時に大量の
+   * ラベルを描いてメインスレッドが重くなるのを防ぐ。未指定は既定値（150）。
+   */
+  maxRendered?: number;
   /** ラベルがクリックされた時に発火するコールバック（第2引数にクリックの MouseEvent を渡す） */
   onClick?: (label: Label, event: MouseEvent) => void;
   /** ポイントホバーアウトラインの外観オプション */

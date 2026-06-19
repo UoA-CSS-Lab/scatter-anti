@@ -9,6 +9,9 @@ import type {
 import type { DataLayer } from '../data/data-layer.js';
 import { getPointColor, getPointSize } from '../util/point.js';
 
+/** 描画するラベルの既定の最大数（クラスタサイズ順 上位 N 件）。俯瞰時の描画負荷の上限。 */
+const DEFAULT_MAX_RENDERED_LABELS = 150;
+
 /**
  * ラベルレイヤーの初期化オプション
  */
@@ -27,6 +30,8 @@ export interface LabelLayerOptions {
    * 未指定時は従来どおりグレー表示。
    */
   unmatchedLabelOpacity?: number;
+  /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件）。未指定は 150。 */
+  maxRenderedLabels?: number;
   /** ラベルクリック時のコールバック */
   onLabelClick?: (label: Label, event: MouseEvent) => void;
   /** ポイントホバー時のコールバック */
@@ -60,6 +65,28 @@ export class LabelLayer {
   private filterLambda?: LabelFilterLambda;
   /** 非マッチラベルの dim opacity（指定時は元色を保持して減衰、未指定はグレー表示） */
   private unmatchedLabelOpacity?: number;
+  /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件） */
+  private maxRenderedLabels: number = DEFAULT_MAX_RENDERED_LABELS;
+  /** ラベル幅キャッシュ（テキスト→基準フォントサイズでの幅）。measureText の毎フレーム呼び出しを回避 */
+  private textWidthCache = new Map<string, number>();
+  /** textWidthCache を計測したフォントサイズ（変わったらクリア） */
+  private twCacheFontSize = -1;
+  /** 直近 render() の入力スナップショット。すべて一致なら再描画を省く（冗長 render の抑止） */
+  private rPrev = {
+    zoom: NaN,
+    panX: NaN,
+    panY: NaN,
+    font: NaN,
+    cw: -1,
+    ch: -1,
+    labels: null as Label[] | null,
+    filter: undefined as LabelFilterLambda | undefined,
+    unmatched: undefined as number | undefined,
+    hoveredLabel: null as Label | null,
+    hoveredPoint: null as Record<string, any> | null,
+    maxRendered: -1,
+    hoverOutline: null as HoverOutlineOptions | null,
+  };
 
   /** 現在のズーム倍率 */
   private zoom: number = 1.0;
@@ -112,6 +139,7 @@ export class LabelLayer {
     this.labelFontSize = options.labelFontSize ?? this.labelFontSize;
     this.filterLambda = options.filterLambda;
     this.unmatchedLabelOpacity = options.unmatchedLabelOpacity;
+    this.maxRenderedLabels = options.maxRenderedLabels ?? DEFAULT_MAX_RENDERED_LABELS;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
     this.onLabelHover = options.onLabelHover;
@@ -174,6 +202,40 @@ export class LabelLayer {
    * ラベルを2Dキャンバスに描画する
    */
   render(): void {
+    // 入力が前回と同一なら再描画しない（GPU render 由来の冗長呼び出しや、点ホバー据え置き時の
+    // 全ラベル再レイアウトを避ける）。ラベルキャンバスは render() でしか消去しないので保持される。
+    const p = this.rPrev;
+    if (
+      p.zoom === this.zoom &&
+      p.panX === this.panX &&
+      p.panY === this.panY &&
+      p.font === this.labelFontSize &&
+      p.cw === this.labelCanvas.width &&
+      p.ch === this.labelCanvas.height &&
+      p.labels === this.labels &&
+      p.filter === this.filterLambda &&
+      p.unmatched === this.unmatchedLabelOpacity &&
+      p.hoveredLabel === this.hoveredLabel &&
+      p.hoveredPoint === this.hoveredPoint &&
+      p.maxRendered === this.maxRenderedLabels &&
+      p.hoverOutline === this.hoverOutlineOptions
+    ) {
+      return;
+    }
+    p.zoom = this.zoom;
+    p.panX = this.panX;
+    p.panY = this.panY;
+    p.font = this.labelFontSize;
+    p.cw = this.labelCanvas.width;
+    p.ch = this.labelCanvas.height;
+    p.labels = this.labels;
+    p.filter = this.filterLambda;
+    p.unmatched = this.unmatchedLabelOpacity;
+    p.hoveredLabel = this.hoveredLabel;
+    p.hoveredPoint = this.hoveredPoint;
+    p.maxRendered = this.maxRenderedLabels;
+    p.hoverOutline = this.hoverOutlineOptions;
+
     this.labelContext.clearRect(0, 0, this.labelCanvas.width, this.labelCanvas.height);
     this.renderedLabelBounds = [];
 
@@ -181,7 +243,19 @@ export class LabelLayer {
       return;
     }
 
+    // ラベル幅キャッシュはフォントサイズが変わったら破棄（幅は px に比例するので基準サイズ分のみ保持）。
+    if (this.twCacheFontSize !== this.labelFontSize) {
+      this.textWidthCache.clear();
+      this.twCacheFontSize = this.labelFontSize;
+    }
+
     const fontSize = this.labelFontSize;
+    // fontSize <= 0（ラベル非表示）のときは描画も当たり判定も行わない。renderedLabelBounds は
+    // 既に空にしてあるので、ここで return すれば hit-test 対象が残らない（非表示ラベルが
+    // クリックできてしまうのを防ぐ）。
+    if (fontSize <= 0) {
+      return;
+    }
     this.labelContext.fillStyle = 'white';
     this.labelContext.strokeStyle = 'black';
     this.labelContext.lineWidth = 2;
@@ -204,6 +278,9 @@ export class LabelLayer {
     });
 
     for (const { label, passedFilter } of labelsWithFilter) {
+      // 描画本数の上限。this.labels は loadLabels で count 降順に pre-sort 済みで、上の sort は
+      // passedFilter での分類のみ（安定ソートで元順序=count 降順を保持）。よって上位 N 件が残る。
+      if (renderedPositions.length >= this.maxRenderedLabels) break;
       const { x: screenX, y: screenY } = this.worldToScreenCoords(label.x, label.y);
 
       if (
@@ -227,8 +304,16 @@ export class LabelLayer {
 
           this.labelContext.font = `bold ${scaledFontSize}px sans-serif`;
 
-          const textMetrics = this.labelContext.measureText(label.text);
-          const textWidth = textMetrics.width;
+          // measureText は高コスト。テキストは不変なので基準フォントサイズでの幅を一度だけ計測して
+          // キャッシュし、scale で補正する（幅は px サイズに比例）。毎フレームの全ラベル計測を回避。
+          let baseWidth = this.textWidthCache.get(label.text);
+          if (baseWidth === undefined) {
+            this.labelContext.font = `bold ${fontSize}px sans-serif`;
+            baseWidth = this.labelContext.measureText(label.text).width;
+            this.labelContext.font = `bold ${scaledFontSize}px sans-serif`;
+            this.textWidthCache.set(label.text, baseWidth);
+          }
+          const textWidth = baseWidth * scale;
           const textHeight = scaledFontSize;
 
           if (passedFilter) {
@@ -546,6 +631,8 @@ export class LabelLayer {
     this.labelCanvas.height = height;
     this.labelCanvas.style.width = this.canvas.style.width;
     this.labelCanvas.style.height = this.canvas.style.height;
+    // width/height の代入でキャンバスはクリアされるので再描画する（dirty-check は cw/ch 変化で通る）。
+    this.render();
   }
 
   /**
@@ -561,6 +648,9 @@ export class LabelLayer {
     }
     if (options.unmatchedLabelOpacity !== undefined) {
       this.unmatchedLabelOpacity = options.unmatchedLabelOpacity;
+    }
+    if (options.maxRenderedLabels !== undefined) {
+      this.maxRenderedLabels = options.maxRenderedLabels;
     }
     if (options.onLabelClick !== undefined) {
       this.onLabelClick = options.onLabelClick;
