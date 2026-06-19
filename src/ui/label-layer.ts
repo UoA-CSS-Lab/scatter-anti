@@ -290,8 +290,7 @@ export class LabelLayer {
       label,
       passedFilter:
         this.filterLambda && label.properties ? this.filterLambda(label.properties) : true,
-      isMuted:
-        this.mutedLambda && label.properties ? this.mutedLambda(label.properties) : false,
+      isMuted: this.mutedLambda && label.properties ? this.mutedLambda(label.properties) : false,
     }));
 
     labelsWithFilter.sort((a, b) => {
