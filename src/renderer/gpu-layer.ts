@@ -367,7 +367,8 @@ export class GpuLayer {
 
     this.atomicCounterBuffer = this.context.device.createBuffer({
       size: 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      // COPY_SRC: 計測（readDrawnCount）が描画点数を atomicCounter から読み戻すために必要。
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
 
     this.indirectBuffer = this.context.device.createBuffer({
