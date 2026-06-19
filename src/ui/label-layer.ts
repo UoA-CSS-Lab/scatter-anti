@@ -28,7 +28,7 @@ export interface LabelLayerOptions {
    */
   unmatchedLabelOpacity?: number;
   /** ラベルクリック時のコールバック */
-  onLabelClick?: (label: Label, event?: MouseEvent) => void;
+  onLabelClick?: (label: Label, event: MouseEvent) => void;
   /** ポイントホバー時のコールバック */
   onPointHover?: PointHoverCallback;
   /** ラベルホバー時のコールバック */
@@ -69,7 +69,7 @@ export class LabelLayer {
   private panY: number = 0.0;
 
   /** ラベルクリック時のコールバック */
-  private onLabelClick?: (label: Label, event?: MouseEvent) => void;
+  private onLabelClick?: (label: Label, event: MouseEvent) => void;
   /** 描画されたラベルのバウンディングボックス配列 */
   private renderedLabelBounds: Array<{
     label: Label;

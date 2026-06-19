@@ -246,7 +246,7 @@ export interface LabelOptions {
    */
   unmatchedLabelOpacity?: number;
   /** ラベルがクリックされた時に発火するコールバック（第2引数にクリックの MouseEvent を渡す） */
-  onClick?: (label: Label, event?: MouseEvent) => void;
+  onClick?: (label: Label, event: MouseEvent) => void;
   /** ポイントホバーアウトラインの外観オプション */
   hoverOutlineOptions?: HoverOutlineOptions;
 }
