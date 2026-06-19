@@ -245,8 +245,8 @@ export interface LabelOptions {
    * グレー化せず元のクラスタ色のまま opacity を下げて描画する（dim-only）。未指定はグレー表示。
    */
   unmatchedLabelOpacity?: number;
-  /** ラベルがクリックされた時に発火するコールバック */
-  onClick?: (label: Label) => void;
+  /** ラベルがクリックされた時に発火するコールバック（第2引数にクリックの MouseEvent を渡す） */
+  onClick?: (label: Label, event: MouseEvent) => void;
   /** ポイントホバーアウトラインの外観オプション */
   hoverOutlineOptions?: HoverOutlineOptions;
 }
