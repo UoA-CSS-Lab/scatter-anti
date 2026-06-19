@@ -28,7 +28,7 @@ export interface LabelLayerOptions {
    */
   unmatchedLabelOpacity?: number;
   /** ラベルクリック時のコールバック */
-  onLabelClick?: (label: Label) => void;
+  onLabelClick?: (label: Label, event?: MouseEvent) => void;
   /** ポイントホバー時のコールバック */
   onPointHover?: PointHoverCallback;
   /** ラベルホバー時のコールバック */
@@ -69,7 +69,7 @@ export class LabelLayer {
   private panY: number = 0.0;
 
   /** ラベルクリック時のコールバック */
-  private onLabelClick?: (label: Label) => void;
+  private onLabelClick?: (label: Label, event?: MouseEvent) => void;
   /** 描画されたラベルのバウンディングボックス配列 */
   private renderedLabelBounds: Array<{
     label: Label;
@@ -458,7 +458,8 @@ export class LabelLayer {
       const labelAtPosition = this.getLabelAtPosition(x, y);
 
       if (labelAtPosition && this.onLabelClick) {
-        this.onLabelClick(labelAtPosition);
+        // クリックの MouseEvent を渡す（Ctrl/Meta 等の修飾キー判定を呼び出し側で行えるように）
+        this.onLabelClick(labelAtPosition, e);
         e.stopPropagation();
       }
     });
