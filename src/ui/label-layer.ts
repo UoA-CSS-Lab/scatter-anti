@@ -30,6 +30,10 @@ export interface LabelLayerOptions {
    * 未指定時は従来どおりグレー表示。
    */
   unmatchedLabelOpacity?: number;
+  /** ミュート（グレー表示）判定関数。true でクラスタ色でなく mutedLabelColor で描く（dim と直交） */
+  mutedLambda?: LabelFilterLambda;
+  /** ミュート時のストローク色 [r, g, b]（未指定は [102, 102, 102]） */
+  mutedLabelColor?: [number, number, number];
   /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件）。未指定は 150。 */
   maxRenderedLabels?: number;
   /** ラベルクリック時のコールバック */
@@ -65,6 +69,10 @@ export class LabelLayer {
   private filterLambda?: LabelFilterLambda;
   /** 非マッチラベルの dim opacity（指定時は元色を保持して減衰、未指定はグレー表示） */
   private unmatchedLabelOpacity?: number;
+  /** ミュート（グレー）判定関数（投稿フィルタ非該当クラスタ等）。dim とは直交 */
+  private mutedLambda?: LabelFilterLambda;
+  /** ミュート時のストローク色 [r, g, b]（既定は中立グレー） */
+  private mutedLabelColor: [number, number, number] = [102, 102, 102];
   /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件） */
   private maxRenderedLabels: number = DEFAULT_MAX_RENDERED_LABELS;
   /** ラベル幅キャッシュ（テキスト→基準フォントサイズでの幅）。measureText の毎フレーム呼び出しを回避 */
@@ -82,6 +90,8 @@ export class LabelLayer {
     labels: null as Label[] | null,
     filter: undefined as LabelFilterLambda | undefined,
     unmatched: undefined as number | undefined,
+    muted: undefined as LabelFilterLambda | undefined,
+    mutedColor: null as [number, number, number] | null,
     hoveredLabel: null as Label | null,
     hoveredPoint: null as Record<string, any> | null,
     maxRendered: -1,
@@ -124,6 +134,12 @@ export class LabelLayer {
   private hoveredRowid: number | null = null;
   /** hover データ取得（findPointById）の世代カウンタ（古い非同期結果の破棄=stale guard 用） */
   private hoverQuerySeq = 0;
+  /** findPointById 実行中フラグ（latest-only: 実行中は新規発行せず最新 rowid を控える） */
+  private hoverFetchInFlight = false;
+  /** 実行中に発生した最新の hover rowid（完了時にこれだけ取りに行く。中間は捨てる） */
+  private hoverFetchQueued: number | null = null;
+  /** 直近の wheel（ズーム）時刻。ズーム中は hover 処理を抑制して描画と競合させない */
+  private lastWheelTime = 0;
   /** ホバーアウトラインのオプション */
   private hoverOutlineOptions: HoverOutlineOptions;
   /** データレイヤー参照 */
@@ -139,6 +155,8 @@ export class LabelLayer {
     this.labelFontSize = options.labelFontSize ?? this.labelFontSize;
     this.filterLambda = options.filterLambda;
     this.unmatchedLabelOpacity = options.unmatchedLabelOpacity;
+    this.mutedLambda = options.mutedLambda;
+    this.mutedLabelColor = options.mutedLabelColor ?? [102, 102, 102];
     this.maxRenderedLabels = options.maxRenderedLabels ?? DEFAULT_MAX_RENDERED_LABELS;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
@@ -215,6 +233,8 @@ export class LabelLayer {
       p.labels === this.labels &&
       p.filter === this.filterLambda &&
       p.unmatched === this.unmatchedLabelOpacity &&
+      p.muted === this.mutedLambda &&
+      p.mutedColor === this.mutedLabelColor &&
       p.hoveredLabel === this.hoveredLabel &&
       p.hoveredPoint === this.hoveredPoint &&
       p.maxRendered === this.maxRenderedLabels &&
@@ -231,6 +251,8 @@ export class LabelLayer {
     p.labels = this.labels;
     p.filter = this.filterLambda;
     p.unmatched = this.unmatchedLabelOpacity;
+    p.muted = this.mutedLambda;
+    p.mutedColor = this.mutedLabelColor;
     p.hoveredLabel = this.hoveredLabel;
     p.hoveredPoint = this.hoveredPoint;
     p.maxRendered = this.maxRenderedLabels;
@@ -268,16 +290,22 @@ export class LabelLayer {
       label,
       passedFilter:
         this.filterLambda && label.properties ? this.filterLambda(label.properties) : true,
+      isMuted: this.mutedLambda && label.properties ? this.mutedLambda(label.properties) : false,
     }));
 
     labelsWithFilter.sort((a, b) => {
+      // content-relevant（非 muted）を優先し、cap（maxRenderedLabels）内に該当ラベルを残す。
+      if (a.isMuted !== b.isMuted) {
+        return a.isMuted ? 1 : -1;
+      }
+      // muted 同一なら従来どおり passedFilter（選択）優先。安定ソートで count 降順を保持。
       if (a.passedFilter !== b.passedFilter) {
         return a.passedFilter ? -1 : 1;
       }
       return 0;
     });
 
-    for (const { label, passedFilter } of labelsWithFilter) {
+    for (const { label, passedFilter, isMuted } of labelsWithFilter) {
       // 描画本数の上限。this.labels は loadLabels で count 降順に pre-sort 済みで、上の sort は
       // passedFilter での分類のみ（安定ソートで元順序=count 降順を保持）。よって上位 N 件が残る。
       if (renderedPositions.length >= this.maxRenderedLabels) break;
@@ -324,7 +352,11 @@ export class LabelLayer {
 
             this.labelContext.fillStyle = 'white';
 
-            if (
+            if (isMuted) {
+              // muted（投稿フィルタ非該当）はクラスタ色でなくグレーで描く（選択中でも内容は非該当）
+              const [mr, mg, mb] = this.mutedLabelColor;
+              this.labelContext.strokeStyle = `rgb(${mr}, ${mg}, ${mb})`;
+            } else if (
               label.properties?.color &&
               Array.isArray(label.properties.color) &&
               label.properties.color.length === 3
@@ -346,9 +378,15 @@ export class LabelLayer {
             this.labelContext.shadowColor = 'transparent';
             this.labelContext.shadowBlur = 0;
             this.labelContext.fillStyle = `rgba(255, 255, 255, ${a})`;
-            this.labelContext.strokeStyle = hasColor
-              ? `rgba(${col[0]}, ${col[1]}, ${col[2]}, ${a})`
-              : `rgba(100, 100, 100, ${a})`;
+            if (isMuted) {
+              // muted（投稿フィルタ非該当）かつ dim（非選択）→ グレー色を同じ opacity で（直交）
+              const [mr, mg, mb] = this.mutedLabelColor;
+              this.labelContext.strokeStyle = `rgba(${mr}, ${mg}, ${mb}, ${a})`;
+            } else {
+              this.labelContext.strokeStyle = hasColor
+                ? `rgba(${col[0]}, ${col[1]}, ${col[2]}, ${a})`
+                : `rgba(100, 100, 100, ${a})`;
+            }
             this.labelContext.lineWidth = 2;
           } else {
             this.labelContext.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -496,15 +534,23 @@ export class LabelLayer {
         this.render();
       }
 
+      // ズーム中（直近 wheel から 60ms 以内）は点データの DuckDB 取得だけを控える。cursor と
+      // ラベルホバーは上で更新済み（即応のまま）。hoveredRowid を進めないので、ズーム終了後の
+      // 次の mousemove で点データを取得する。これでズーム描画と DuckDB を競合させない。
+      if (performance.now() - this.lastWheelTime < 60) {
+        return;
+      }
+
       // hover 中の点が変わらなければ何もしない（同じ点での再クエリ・再 render を防ぐ）。
       if (nearestRowid === this.hoveredRowid) {
         return;
       }
       this.hoveredRowid = nearestRowid;
       // 進行中の hover クエリを無効化（古い結果が新しい hover を上書きしないように）。
-      const seq = ++this.hoverQuerySeq;
+      this.hoverQuerySeq++;
 
       if (nearestRowid == null) {
+        this.hoverFetchQueued = null;
         if (this.hoveredPoint !== null) {
           this.hoveredPoint = null;
           if (this.onPointHover) {
@@ -515,22 +561,14 @@ export class LabelLayer {
         return;
       }
 
-      // rowid が変わったときだけ点データ本体（SELECT *）を取得する。
-      // 非同期結果は seq で検証し、古いものは破棄する（stale guard）。
-      void this.dataLayer!.findPointById(nearestRowid)
-        .then((data) => {
-          if (seq !== this.hoverQuerySeq) {
-            return;
-          }
-          this.hoveredPoint = data;
-          if (this.onPointHover) {
-            this.onPointHover(this.hoveredPoint);
-          }
-          this.render();
-        })
-        .catch(() => {
-          /* hover query failure: keep previous hovered point */
-        });
+      // latest-only: 既に findPointById 実行中なら、最新 rowid だけ控えて return する。密集域で
+      // mousemove ごとに rowid が変わっても DuckDB クエリをキューに溜めず、完了時に「最新の点」を
+      // 1つだけ取りに行く。これでホバー追従の遅延（クエリ詰まり）を防ぐ。
+      if (this.hoverFetchInFlight) {
+        this.hoverFetchQueued = nearestRowid;
+        return;
+      }
+      this.fetchHoveredPoint(nearestRowid);
     });
 
     this.labelCanvas.addEventListener('click', (e: MouseEvent) => {
@@ -578,6 +616,16 @@ export class LabelLayer {
       this.canvas.dispatchEvent(newEvent);
     });
 
+    // ズーム（wheel）時刻を記録。wheel はバブリングするので canvas/labelCanvas どちらの上でも
+    // parent で拾える。hover ハンドラがこれを見てズーム中は hover 処理を抑制する。
+    parent.addEventListener(
+      'wheel',
+      () => {
+        this.lastWheelTime = performance.now();
+      },
+      { passive: true }
+    );
+
     parent.addEventListener('mouseleave', () => {
       const hadLabel = this.hoveredLabel !== null;
       const hadPoint = this.hoveredPoint !== null;
@@ -585,6 +633,7 @@ export class LabelLayer {
       this.hoveredLabel = null;
       this.hoveredPoint = null;
       this.hoveredRowid = null;
+      this.hoverFetchQueued = null;
       this.hoverQuerySeq++;
 
       if (hadLabel && this.onLabelHover) {
@@ -599,6 +648,42 @@ export class LabelLayer {
       this.labelCanvas.style.cursor = 'default';
       this.render();
     });
+  }
+
+  /**
+   * hover 中の点データ（SELECT *）を取得して反映する。latest-only: 実行中は新規クエリを発行せず、
+   * 完了時に最新の hoveredRowid を1つだけ取りに行く（密集域で DuckDB クエリを詰まらせない）。
+   */
+  private fetchHoveredPoint(rowid: number): void {
+    if (!this.dataLayer) {
+      return;
+    }
+    this.hoverFetchInFlight = true;
+    const seq = this.hoverQuerySeq;
+    void this.dataLayer
+      .findPointById(rowid)
+      .then((data) => {
+        // mouse が離れた／別点へ移った後の古い結果は破棄（seq と現在の hoveredRowid で検証）。
+        if (seq === this.hoverQuerySeq && rowid === this.hoveredRowid) {
+          this.hoveredPoint = data;
+          if (this.onPointHover) {
+            this.onPointHover(this.hoveredPoint);
+          }
+          this.render();
+        }
+      })
+      .catch(() => {
+        /* hover query failure: keep previous hovered point */
+      })
+      .finally(() => {
+        this.hoverFetchInFlight = false;
+        // 実行中に控えた最新 rowid があり、まだそれが現在の hover なら、それだけ取りに行く。
+        const next = this.hoverFetchQueued;
+        this.hoverFetchQueued = null;
+        if (next != null && next === this.hoveredRowid) {
+          this.fetchHoveredPoint(next);
+        }
+      });
   }
 
   /**
@@ -651,6 +736,12 @@ export class LabelLayer {
     }
     if (options.maxRenderedLabels !== undefined) {
       this.maxRenderedLabels = options.maxRenderedLabels;
+    }
+    if (options.mutedLambda !== undefined) {
+      this.mutedLambda = options.mutedLambda;
+    }
+    if (options.mutedLabelColor !== undefined) {
+      this.mutedLabelColor = options.mutedLabelColor;
     }
     if (options.onLabelClick !== undefined) {
       this.onLabelClick = options.onLabelClick;
