@@ -222,7 +222,11 @@ export class DataLayer {
     try {
       const data = await this.repository!.query({
         toString: () =>
-          `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__ FROM parquet_data ORDER BY rowid`,
+          `SELECT x, y, CAST((${this.sizeSql}) AS DOUBLE) AS __size__, CAST((${this.colorSql}) AS INTEGER) AS __color__, ` +
+          // サイズ基準 LOD 優先度 [0,1)（0=最大サイズ）。サイズ降順＋rowid を tiebreaker にランク付けして正規化。
+          // 均一サイズ（sizeSql=定数）なら tiebreaker の rowid 順＝ID 順になる。
+          `CAST((CAST(ROW_NUMBER() OVER (ORDER BY (${this.sizeSql}) DESC, rowid ASC) AS DOUBLE) - 1.0) / GREATEST(CAST(COUNT(*) OVER () AS DOUBLE), 1.0) AS FLOAT) AS __priority__ ` +
+          `FROM parquet_data ORDER BY rowid`,
       });
       if (!data) {
         return {
@@ -235,6 +239,7 @@ export class DataLayer {
       const yColumn = data.columnData.get('y')!;
       const sizeColumn = data.columnData.get('__size__')!;
       const colorColumn = data.columnData.get('__color__')!;
+      const priorityColumn = data.columnData.get('__priority__');
 
       const buffer = new ArrayBuffer(data.rowCount * 16);
       const floatView = new Float32Array(buffer);
@@ -258,9 +263,15 @@ export class DataLayer {
       this.pointsCache = { xArr, yArr, length: rowCount };
       this.spatialIndex.build(xArr, yArr, rowCount);
 
+      // サイズ基準 LOD 優先度（[0,1), 0=最大サイズ, rowid 順）。GPU 間引きでサイズの大きい点を優先的に残す。
+      const lodPriority = priorityColumn
+        ? new Float32Array(priorityColumn.toArray() as ArrayLike<number>)
+        : undefined;
+
       return {
         instanceData: floatView,
         totalCount: data.rowCount,
+        lodPriority,
       };
     } catch (e) {
       if (this.onError) {
