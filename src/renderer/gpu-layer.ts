@@ -14,6 +14,7 @@ import type {
   BrushBounds,
   ScreenBrushRect,
   BrushOptions,
+  FrameStats,
 } from '../types.js';
 import { DEFAULT_VISIBLE_POINT_LIMIT } from '../constants.js';
 
@@ -185,6 +186,18 @@ export class GpuLayer {
   private selectionStyle: Required<SelectionStyle> = DEFAULT_SELECTION_STYLE;
   /** 選択点が0でも選択 dim を強制するか（ブラシ操作開始時に背景を即 dim する用） */
   private forceSelectionActive = false;
+
+  // ── フレーム計測（dev-only。setInstrumentation(true) で有効化。OFF 時はゼロオーバーヘッド） ──
+  private instrument = false;
+  private statPrevRenderTs = 0;
+  private statFps = 0;
+  private statComputeRan = false;
+  private statProcessed = 0;
+  private statDrawn = 0;
+  private statCpuMs = 0;
+  private statGpuMs = 0;
+  private statGpuInFlight = false;
+  private statDrawnInFlight = false;
 
   /**
    * GpuLayerインスタンスを作成する
@@ -887,10 +900,25 @@ export class GpuLayer {
       return;
     }
 
+    // ── フレーム計測（dev-only）。OFF 時は何もしない。 ──
+    let _computeRan = false;
+    const _instrT0 = this.instrument ? performance.now() : 0;
+    if (this.instrument) {
+      if (this.statPrevRenderTs > 0) {
+        const dt = _instrT0 - this.statPrevRenderTs;
+        if (dt > 0) {
+          const inst = 1000 / dt;
+          this.statFps = this.statFps > 0 ? this.statFps * 0.85 + inst * 0.15 : inst;
+        }
+      }
+      this.statPrevRenderTs = _instrT0;
+    }
+
     const isGrayed = this.filteredPointDisplayMode === 'grayed';
     const commandEncoder = this.context.device.createCommandEncoder();
 
     if (!this.filterResultValid) {
+      _computeRan = true;
       this.context.device.queue.writeBuffer(this.atomicCounterBuffer, 0, new Uint32Array([0]));
       this.context.device.queue.writeBuffer(this.filteredCounterBuffer, 0, new Uint32Array([0]));
 
@@ -959,6 +987,30 @@ export class GpuLayer {
     }
 
     this.context.device.queue.submit([commandEncoder.finish()]);
+
+    if (this.instrument) {
+      this.statCpuMs = performance.now() - _instrT0;
+      this.statComputeRan = _computeRan;
+      this.statProcessed = _computeRan ? this.totalPointCount : 0;
+      // GPU 完了時間（前回の計測が未解決ならスキップ＝throttle）
+      if (!this.statGpuInFlight) {
+        this.statGpuInFlight = true;
+        const tSubmit = performance.now();
+        this.context.device.queue
+          .onSubmittedWorkDone()
+          .then(() => {
+            this.statGpuMs = performance.now() - tSubmit;
+            this.statGpuInFlight = false;
+          })
+          .catch(() => {
+            this.statGpuInFlight = false;
+          });
+      }
+      // 描画点数の読み戻し（compute が走ったフレームのみ・throttle）
+      if (_computeRan && !this.statDrawnInFlight) {
+        void this.readDrawnCount();
+      }
+    }
   }
 
   /**
@@ -1347,6 +1399,60 @@ export class GpuLayer {
     if (!this.context.device || !this.hoverFlagsBuffer) return;
     const wordCount = Math.max(1, Math.ceil(this.totalPointCount / 32));
     this.context.device.queue.writeBuffer(this.hoverFlagsBuffer, 0, new Uint32Array(wordCount));
+  }
+
+  /**
+   * フレーム計測の ON/OFF（dev/デバッグ用）。OFF 時は render() に追加コストを掛けない。
+   */
+  setInstrumentation(on: boolean): void {
+    this.instrument = on;
+    if (!on) {
+      this.statFps = 0;
+      this.statPrevRenderTs = 0;
+    }
+  }
+
+  /**
+   * 直近フレームの計測値を返す（dev/デバッグ用）。fps/cpuEncodeMs/gpuTotalMs/computeRan は直近 render()
+   * の値、drawnCount は非同期読み戻しのため数フレーム遅れる throttled サンプル。
+   */
+  getFrameStats(): FrameStats {
+    return {
+      enabled: this.instrument,
+      fps: Math.round(this.statFps),
+      computeRan: this.statComputeRan,
+      processedCount: this.statProcessed,
+      drawnCount: this.statDrawn,
+      totalPointCount: this.totalPointCount,
+      pointBudget: this.visiblePointLimit,
+      cpuEncodeMs: Math.round(this.statCpuMs * 100) / 100,
+      gpuTotalMs: Math.round(this.statGpuMs * 100) / 100,
+      zoom: this.zoom,
+    };
+  }
+
+  /** 描画点数（atomicCounter = visibleIndices 件数）を非同期読み戻し（計測用・throttle）。 */
+  private async readDrawnCount(): Promise<void> {
+    if (!this.context.device || !this.atomicCounterBuffer) return;
+    this.statDrawnInFlight = true;
+    let staging: GPUBuffer | null = null;
+    try {
+      staging = this.context.device.createBuffer({
+        size: 4,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+      const enc = this.context.device.createCommandEncoder();
+      enc.copyBufferToBuffer(this.atomicCounterBuffer, 0, staging, 0, 4);
+      this.context.device.queue.submit([enc.finish()]);
+      await staging.mapAsync(GPUMapMode.READ);
+      this.statDrawn = new Uint32Array(staging.getMappedRange().slice(0))[0];
+      staging.unmap();
+    } catch {
+      /* 計測用なので失敗は無視 */
+    } finally {
+      if (staging) staging.destroy(); // 例外時もバッファをリークさせない
+      this.statDrawnInFlight = false;
+    }
   }
 
   /**
