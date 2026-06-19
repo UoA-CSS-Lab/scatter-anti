@@ -124,6 +124,12 @@ export class LabelLayer {
   private hoveredRowid: number | null = null;
   /** hover データ取得（findPointById）の世代カウンタ（古い非同期結果の破棄=stale guard 用） */
   private hoverQuerySeq = 0;
+  /** findPointById 実行中フラグ（latest-only: 実行中は新規発行せず最新 rowid を控える） */
+  private hoverFetchInFlight = false;
+  /** 実行中に発生した最新の hover rowid（完了時にこれだけ取りに行く。中間は捨てる） */
+  private hoverFetchQueued: number | null = null;
+  /** 直近の wheel（ズーム）時刻。ズーム中は hover 処理を抑制して描画と競合させない */
+  private lastWheelTime = 0;
   /** ホバーアウトラインのオプション */
   private hoverOutlineOptions: HoverOutlineOptions;
   /** データレイヤー参照 */
@@ -496,15 +502,23 @@ export class LabelLayer {
         this.render();
       }
 
+      // ズーム中（直近 wheel から 60ms 以内）は点データの DuckDB 取得だけを控える。cursor と
+      // ラベルホバーは上で更新済み（即応のまま）。hoveredRowid を進めないので、ズーム終了後の
+      // 次の mousemove で点データを取得する。これでズーム描画と DuckDB を競合させない。
+      if (performance.now() - this.lastWheelTime < 60) {
+        return;
+      }
+
       // hover 中の点が変わらなければ何もしない（同じ点での再クエリ・再 render を防ぐ）。
       if (nearestRowid === this.hoveredRowid) {
         return;
       }
       this.hoveredRowid = nearestRowid;
       // 進行中の hover クエリを無効化（古い結果が新しい hover を上書きしないように）。
-      const seq = ++this.hoverQuerySeq;
+      this.hoverQuerySeq++;
 
       if (nearestRowid == null) {
+        this.hoverFetchQueued = null;
         if (this.hoveredPoint !== null) {
           this.hoveredPoint = null;
           if (this.onPointHover) {
@@ -515,22 +529,14 @@ export class LabelLayer {
         return;
       }
 
-      // rowid が変わったときだけ点データ本体（SELECT *）を取得する。
-      // 非同期結果は seq で検証し、古いものは破棄する（stale guard）。
-      void this.dataLayer!.findPointById(nearestRowid)
-        .then((data) => {
-          if (seq !== this.hoverQuerySeq) {
-            return;
-          }
-          this.hoveredPoint = data;
-          if (this.onPointHover) {
-            this.onPointHover(this.hoveredPoint);
-          }
-          this.render();
-        })
-        .catch(() => {
-          /* hover query failure: keep previous hovered point */
-        });
+      // latest-only: 既に findPointById 実行中なら、最新 rowid だけ控えて return する。密集域で
+      // mousemove ごとに rowid が変わっても DuckDB クエリをキューに溜めず、完了時に「最新の点」を
+      // 1つだけ取りに行く。これでホバー追従の遅延（クエリ詰まり）を防ぐ。
+      if (this.hoverFetchInFlight) {
+        this.hoverFetchQueued = nearestRowid;
+        return;
+      }
+      this.fetchHoveredPoint(nearestRowid);
     });
 
     this.labelCanvas.addEventListener('click', (e: MouseEvent) => {
@@ -578,6 +584,16 @@ export class LabelLayer {
       this.canvas.dispatchEvent(newEvent);
     });
 
+    // ズーム（wheel）時刻を記録。wheel はバブリングするので canvas/labelCanvas どちらの上でも
+    // parent で拾える。hover ハンドラがこれを見てズーム中は hover 処理を抑制する。
+    parent.addEventListener(
+      'wheel',
+      () => {
+        this.lastWheelTime = performance.now();
+      },
+      { passive: true }
+    );
+
     parent.addEventListener('mouseleave', () => {
       const hadLabel = this.hoveredLabel !== null;
       const hadPoint = this.hoveredPoint !== null;
@@ -585,6 +601,7 @@ export class LabelLayer {
       this.hoveredLabel = null;
       this.hoveredPoint = null;
       this.hoveredRowid = null;
+      this.hoverFetchQueued = null;
       this.hoverQuerySeq++;
 
       if (hadLabel && this.onLabelHover) {
@@ -599,6 +616,42 @@ export class LabelLayer {
       this.labelCanvas.style.cursor = 'default';
       this.render();
     });
+  }
+
+  /**
+   * hover 中の点データ（SELECT *）を取得して反映する。latest-only: 実行中は新規クエリを発行せず、
+   * 完了時に最新の hoveredRowid を1つだけ取りに行く（密集域で DuckDB クエリを詰まらせない）。
+   */
+  private fetchHoveredPoint(rowid: number): void {
+    if (!this.dataLayer) {
+      return;
+    }
+    this.hoverFetchInFlight = true;
+    const seq = this.hoverQuerySeq;
+    void this.dataLayer
+      .findPointById(rowid)
+      .then((data) => {
+        // mouse が離れた／別点へ移った後の古い結果は破棄（seq と現在の hoveredRowid で検証）。
+        if (seq === this.hoverQuerySeq && rowid === this.hoveredRowid) {
+          this.hoveredPoint = data;
+          if (this.onPointHover) {
+            this.onPointHover(this.hoveredPoint);
+          }
+          this.render();
+        }
+      })
+      .catch(() => {
+        /* hover query failure: keep previous hovered point */
+      })
+      .finally(() => {
+        this.hoverFetchInFlight = false;
+        // 実行中に控えた最新 rowid があり、まだそれが現在の hover なら、それだけ取りに行く。
+        const next = this.hoverFetchQueued;
+        this.hoverFetchQueued = null;
+        if (next != null && next === this.hoveredRowid) {
+          this.fetchHoveredPoint(next);
+        }
+      });
   }
 
   /**
