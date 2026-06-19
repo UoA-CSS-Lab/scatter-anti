@@ -30,6 +30,10 @@ export interface LabelLayerOptions {
    * 未指定時は従来どおりグレー表示。
    */
   unmatchedLabelOpacity?: number;
+  /** ミュート（グレー表示）判定関数。true でクラスタ色でなく mutedLabelColor で描く（dim と直交） */
+  mutedLambda?: LabelFilterLambda;
+  /** ミュート時のストローク色 [r, g, b]（未指定は [102, 102, 102]） */
+  mutedLabelColor?: [number, number, number];
   /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件）。未指定は 150。 */
   maxRenderedLabels?: number;
   /** ラベルクリック時のコールバック */
@@ -65,6 +69,10 @@ export class LabelLayer {
   private filterLambda?: LabelFilterLambda;
   /** 非マッチラベルの dim opacity（指定時は元色を保持して減衰、未指定はグレー表示） */
   private unmatchedLabelOpacity?: number;
+  /** ミュート（グレー）判定関数（投稿フィルタ非該当クラスタ等）。dim とは直交 */
+  private mutedLambda?: LabelFilterLambda;
+  /** ミュート時のストローク色 [r, g, b]（既定は中立グレー） */
+  private mutedLabelColor: [number, number, number] = [102, 102, 102];
   /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件） */
   private maxRenderedLabels: number = DEFAULT_MAX_RENDERED_LABELS;
   /** ラベル幅キャッシュ（テキスト→基準フォントサイズでの幅）。measureText の毎フレーム呼び出しを回避 */
@@ -82,6 +90,8 @@ export class LabelLayer {
     labels: null as Label[] | null,
     filter: undefined as LabelFilterLambda | undefined,
     unmatched: undefined as number | undefined,
+    muted: undefined as LabelFilterLambda | undefined,
+    mutedColor: null as [number, number, number] | null,
     hoveredLabel: null as Label | null,
     hoveredPoint: null as Record<string, any> | null,
     maxRendered: -1,
@@ -145,6 +155,8 @@ export class LabelLayer {
     this.labelFontSize = options.labelFontSize ?? this.labelFontSize;
     this.filterLambda = options.filterLambda;
     this.unmatchedLabelOpacity = options.unmatchedLabelOpacity;
+    this.mutedLambda = options.mutedLambda;
+    this.mutedLabelColor = options.mutedLabelColor ?? [102, 102, 102];
     this.maxRenderedLabels = options.maxRenderedLabels ?? DEFAULT_MAX_RENDERED_LABELS;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
@@ -221,6 +233,8 @@ export class LabelLayer {
       p.labels === this.labels &&
       p.filter === this.filterLambda &&
       p.unmatched === this.unmatchedLabelOpacity &&
+      p.muted === this.mutedLambda &&
+      p.mutedColor === this.mutedLabelColor &&
       p.hoveredLabel === this.hoveredLabel &&
       p.hoveredPoint === this.hoveredPoint &&
       p.maxRendered === this.maxRenderedLabels &&
@@ -237,6 +251,8 @@ export class LabelLayer {
     p.labels = this.labels;
     p.filter = this.filterLambda;
     p.unmatched = this.unmatchedLabelOpacity;
+    p.muted = this.mutedLambda;
+    p.mutedColor = this.mutedLabelColor;
     p.hoveredLabel = this.hoveredLabel;
     p.hoveredPoint = this.hoveredPoint;
     p.maxRendered = this.maxRenderedLabels;
@@ -274,16 +290,23 @@ export class LabelLayer {
       label,
       passedFilter:
         this.filterLambda && label.properties ? this.filterLambda(label.properties) : true,
+      isMuted:
+        this.mutedLambda && label.properties ? this.mutedLambda(label.properties) : false,
     }));
 
     labelsWithFilter.sort((a, b) => {
+      // content-relevant（非 muted）を優先し、cap（maxRenderedLabels）内に該当ラベルを残す。
+      if (a.isMuted !== b.isMuted) {
+        return a.isMuted ? 1 : -1;
+      }
+      // muted 同一なら従来どおり passedFilter（選択）優先。安定ソートで count 降順を保持。
       if (a.passedFilter !== b.passedFilter) {
         return a.passedFilter ? -1 : 1;
       }
       return 0;
     });
 
-    for (const { label, passedFilter } of labelsWithFilter) {
+    for (const { label, passedFilter, isMuted } of labelsWithFilter) {
       // 描画本数の上限。this.labels は loadLabels で count 降順に pre-sort 済みで、上の sort は
       // passedFilter での分類のみ（安定ソートで元順序=count 降順を保持）。よって上位 N 件が残る。
       if (renderedPositions.length >= this.maxRenderedLabels) break;
@@ -330,7 +353,11 @@ export class LabelLayer {
 
             this.labelContext.fillStyle = 'white';
 
-            if (
+            if (isMuted) {
+              // muted（投稿フィルタ非該当）はクラスタ色でなくグレーで描く（選択中でも内容は非該当）
+              const [mr, mg, mb] = this.mutedLabelColor;
+              this.labelContext.strokeStyle = `rgb(${mr}, ${mg}, ${mb})`;
+            } else if (
               label.properties?.color &&
               Array.isArray(label.properties.color) &&
               label.properties.color.length === 3
@@ -352,9 +379,15 @@ export class LabelLayer {
             this.labelContext.shadowColor = 'transparent';
             this.labelContext.shadowBlur = 0;
             this.labelContext.fillStyle = `rgba(255, 255, 255, ${a})`;
-            this.labelContext.strokeStyle = hasColor
-              ? `rgba(${col[0]}, ${col[1]}, ${col[2]}, ${a})`
-              : `rgba(100, 100, 100, ${a})`;
+            if (isMuted) {
+              // muted（投稿フィルタ非該当）かつ dim（非選択）→ グレー色を同じ opacity で（直交）
+              const [mr, mg, mb] = this.mutedLabelColor;
+              this.labelContext.strokeStyle = `rgba(${mr}, ${mg}, ${mb}, ${a})`;
+            } else {
+              this.labelContext.strokeStyle = hasColor
+                ? `rgba(${col[0]}, ${col[1]}, ${col[2]}, ${a})`
+                : `rgba(100, 100, 100, ${a})`;
+            }
             this.labelContext.lineWidth = 2;
           } else {
             this.labelContext.shadowColor = 'rgba(0, 0, 0, 0.3)';
@@ -704,6 +737,12 @@ export class LabelLayer {
     }
     if (options.maxRenderedLabels !== undefined) {
       this.maxRenderedLabels = options.maxRenderedLabels;
+    }
+    if (options.mutedLambda !== undefined) {
+      this.mutedLambda = options.mutedLambda;
+    }
+    if (options.mutedLabelColor !== undefined) {
+      this.mutedLabelColor = options.mutedLabelColor;
     }
     if (options.onLabelClick !== undefined) {
       this.onLabelClick = options.onLabelClick;

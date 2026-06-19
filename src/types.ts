@@ -254,6 +254,14 @@ export interface LabelOptions {
   onClick?: (label: Label, event: MouseEvent) => void;
   /** ポイントホバーアウトラインの外観オプション */
   hoverOutlineOptions?: HoverOutlineOptions;
+  /**
+   * プロパティに基づいてラベルを「ミュート（グレー）」表示するか制御する関数。true を返すと
+   * そのラベルはクラスタ色でなくグレー（mutedLabelColor）で描かれる。filterLambda の dim と
+   * 直交し、両方該当するラベルはグレー色を unmatchedLabelOpacity の不透明度で描く。
+   */
+  mutedLambda?: LabelFilterLambda;
+  /** ミュート時のストローク色 [r, g, b]（0-255）。未指定は [102, 102, 102]（中立グレー）。 */
+  mutedLabelColor?: [number, number, number];
 }
 
 export interface InteractionOptions {
