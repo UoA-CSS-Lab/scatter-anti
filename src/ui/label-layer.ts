@@ -534,17 +534,29 @@ export class LabelLayer {
         this.render();
       }
 
-      // ズーム中（直近 wheel から 60ms 以内）は点データの DuckDB 取得だけを控える。cursor と
-      // ラベルホバーは上で更新済み（即応のまま）。hoveredRowid を進めないので、ズーム終了後の
-      // 次の mousemove で点データを取得する。これでズーム描画と DuckDB を競合させない。
-      if (performance.now() - this.lastWheelTime < 60) {
-        return;
-      }
-
       // hover 中の点が変わらなければ何もしない（同じ点での再クエリ・再 render を防ぐ）。
       if (nearestRowid === this.hoveredRowid) {
         return;
       }
+
+      // ズーム中（直近 wheel から 60ms 以内）は新しい点の DuckDB 取得を控える（ズーム描画と
+      // 競合させない）。ただし点が変わった/外れたときの古い hover クリアは必ず行い、stale な
+      // アウトライン・ツールチップを残さない（クリアは DuckDB を伴わない）。hoveredRowid は確定
+      // させず null に戻し、ズーム解除後の次の mousemove でカーソル下の点を取得し直す。
+      if (performance.now() - this.lastWheelTime < 60) {
+        this.hoveredRowid = null;
+        this.hoverQuerySeq++;
+        this.hoverFetchQueued = null;
+        if (this.hoveredPoint !== null) {
+          this.hoveredPoint = null;
+          if (this.onPointHover) {
+            this.onPointHover(null);
+          }
+          this.render();
+        }
+        return;
+      }
+
       this.hoveredRowid = nearestRowid;
       // 進行中の hover クエリを無効化（古い結果が新しい hover を上書きしないように）。
       this.hoverQuerySeq++;
