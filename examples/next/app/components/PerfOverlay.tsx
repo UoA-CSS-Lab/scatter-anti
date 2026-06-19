@@ -4,6 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import { useScatterPlot } from '../context/ScatterPlotContext';
 import type { FrameStats } from '@uoa-css-lab/duckscatter';
 
+/** 1 行（ラベル + 値）。render 中に再生成しないようコンポーネント外で定義する（react-hooks/static-components）。 */
+function Row({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <span className="text-gray-400">{k}</span>
+      <span className="font-mono tabular-nums text-gray-100">{v}</span>
+    </div>
+  );
+}
+
 /**
  * フレーム計測オーバーレイ（Phase 0 計測基盤・dev 用）。
  * plot.setInstrumentation(true) を有効化し、getFrameStats() を 250ms 間隔でポーリングして表示する。
@@ -41,13 +51,6 @@ export function PerfOverlay() {
     stats.totalPointCount > 0
       ? Math.round((stats.drawnCount / stats.totalPointCount) * 1000) / 10
       : 0;
-
-  const Row = ({ k, v }: { k: string; v: string }) => (
-    <div className="flex justify-between gap-4">
-      <span className="text-gray-400">{k}</span>
-      <span className="font-mono tabular-nums text-gray-100">{v}</span>
-    </div>
-  );
 
   const deltaCompute = Math.max(0, stats.gpuComputeMs - stats.gpuIdleMs);
 
