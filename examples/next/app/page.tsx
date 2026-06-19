@@ -2,6 +2,7 @@
 
 import { ScatterPlotCanvas } from './components/ScatterPlotCanvas';
 import { ControlPanel } from './components/ControlPanel';
+import { PerfOverlay } from './components/PerfOverlay';
 
 export default function Home() {
   return (
@@ -9,6 +10,7 @@ export default function Home() {
       <ControlPanel />
       <main className="flex-1 relative">
         <ScatterPlotCanvas />
+        <PerfOverlay />
       </main>
     </div>
   );

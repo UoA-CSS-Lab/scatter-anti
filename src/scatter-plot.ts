@@ -13,6 +13,7 @@ import type {
   BrushOptions,
   ScatterPlotUpdatePath,
   ScatterPlotUpdatePlan,
+  FrameStats,
 } from './types.js';
 import { DataLayer, type ParquetData } from './data/index.js';
 import { GpuLayer } from './renderer/index.js';
@@ -835,6 +836,20 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
    */
   async getSelectionCount(): Promise<number> {
     return this.gpuLayer.getSelectionCount();
+  }
+
+  /**
+   * フレーム計測の ON/OFF（dev/デバッグ用）。OFF 時は render() に追加コストを掛けない。
+   */
+  setInstrumentation(on: boolean): void {
+    this.gpuLayer.setInstrumentation(on);
+  }
+
+  /**
+   * 直近フレームの計測値（fps・処理点数・GPU/CPU 時間など）を返す（dev/デバッグ用）。
+   */
+  getFrameStats(): FrameStats {
+    return this.gpuLayer.getFrameStats();
   }
 
   /**

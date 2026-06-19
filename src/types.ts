@@ -278,6 +278,35 @@ export interface ScatterPlotOptions {
 }
 
 /**
+ * フレーム計測の統計（dev/デバッグ用）。`ScatterPlot.getFrameStats()` で取得する。
+ * 描画レイヤを一切変えずに、毎フレームの負荷指標（fps・処理点数・GPU/CPU 時間）を読み出す。
+ */
+export interface FrameStats {
+  /** 計測が有効か（setInstrumentation(true) 済みか） */
+  enabled: boolean;
+  /** 直近の render() 呼び出し間隔から算出した平滑化 FPS */
+  fps: number;
+  /** 直近フレームでフィルタ compute が走ったか（pan/zoom/filter 変化時のみ true） */
+  computeRan: boolean;
+  /** 直近に compute が走ったフレームで評価した点数（現状は全点 = totalPointCount）。sticky（idle で 0 に戻さない） */
+  processedCount: number;
+  /** 直近に compute が走ったフレームの描画点数（visibleIndices 件数, 非同期読み戻し・sticky） */
+  drawnCount: number;
+  /** 総点数（parquet 行数） */
+  totalPointCount: number;
+  /** LOD 予算（visiblePointLimit） */
+  pointBudget: number;
+  /** render() の CPU エンコード時間 (ms, 直近フレーム) */
+  cpuEncodeMs: number;
+  /** compute が走ったフレームの GPU 完了時間 (ms, onSubmittedWorkDone, sticky)。フィルタ全点走査込み */
+  gpuComputeMs: number;
+  /** render のみ（compute skip）フレームの GPU 完了時間 (ms, sticky)。gpuComputeMs との差が compute コストの目安 */
+  gpuIdleMs: number;
+  /** 現在のズーム倍率 */
+  zoom: number;
+}
+
+/**
  * エラーハンドリング型
  */
 

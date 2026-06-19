@@ -35,6 +35,8 @@ export type {
   // Hover control types
   LabelIdentifier,
   LabelHoverCallback,
+  // Instrumentation (dev/debug)
+  FrameStats,
 } from './types.js';
 
 export {
