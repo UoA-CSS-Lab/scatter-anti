@@ -195,7 +195,8 @@ export class GpuLayer {
   private statProcessed = 0;
   private statDrawn = 0;
   private statCpuMs = 0;
-  private statGpuMs = 0;
+  private statGpuComputeMs = 0;
+  private statGpuIdleMs = 0;
   private statGpuInFlight = false;
   private statDrawnInFlight = false;
 
@@ -992,22 +993,28 @@ export class GpuLayer {
     if (this.instrument) {
       this.statCpuMs = performance.now() - _instrT0;
       this.statComputeRan = _computeRan;
-      this.statProcessed = _computeRan ? this.totalPointCount : 0;
-      // GPU 完了時間（前回の計測が未解決ならスキップ＝throttle）
+      // processed は compute が走ったフレームの値だけ保持（idle で 0 に戻さない＝sticky）。
+      // 静止状態でオーバーレイを読んでも直近の重いフレームの走査点数が見える。
+      if (_computeRan) this.statProcessed = this.totalPointCount;
+      // GPU 完了時間（前回の計測が未解決ならスキップ＝throttle）。compute/idle を分けて保持し、
+      // 差分（compute - idle）でフィルタ全点走査のコストを切り出せるようにする。
       if (!this.statGpuInFlight) {
         this.statGpuInFlight = true;
         const tSubmit = performance.now();
+        const wasCompute = _computeRan;
         this.context.device.queue
           .onSubmittedWorkDone()
           .then(() => {
-            this.statGpuMs = performance.now() - tSubmit;
+            const ms = performance.now() - tSubmit;
+            if (wasCompute) this.statGpuComputeMs = ms;
+            else this.statGpuIdleMs = ms;
             this.statGpuInFlight = false;
           })
           .catch(() => {
             this.statGpuInFlight = false;
           });
       }
-      // 描画点数の読み戻し（compute が走ったフレームのみ・throttle）
+      // 描画点数の読み戻し（compute が走ったフレームのみ・throttle・sticky）
       if (_computeRan && !this.statDrawnInFlight) {
         void this.readDrawnCount();
       }
@@ -1427,7 +1434,8 @@ export class GpuLayer {
       totalPointCount: this.totalPointCount,
       pointBudget: this.visiblePointLimit,
       cpuEncodeMs: Math.round(this.statCpuMs * 100) / 100,
-      gpuTotalMs: Math.round(this.statGpuMs * 100) / 100,
+      gpuComputeMs: Math.round(this.statGpuComputeMs * 100) / 100,
+      gpuIdleMs: Math.round(this.statGpuIdleMs * 100) / 100,
       zoom: this.zoom,
     };
   }

@@ -288,18 +288,20 @@ export interface FrameStats {
   fps: number;
   /** 直近フレームでフィルタ compute が走ったか（pan/zoom/filter 変化時のみ true） */
   computeRan: boolean;
-  /** compute が走ったフレームで評価した点数（現状は全点 = totalPointCount）。走らなければ 0 */
+  /** 直近に compute が走ったフレームで評価した点数（現状は全点 = totalPointCount）。sticky（idle で 0 に戻さない） */
   processedCount: number;
-  /** 直近に読み戻した描画点数（visibleIndices の件数, 非同期・throttle） */
+  /** 直近に compute が走ったフレームの描画点数（visibleIndices 件数, 非同期読み戻し・sticky） */
   drawnCount: number;
   /** 総点数（parquet 行数） */
   totalPointCount: number;
   /** LOD 予算（visiblePointLimit） */
   pointBudget: number;
-  /** render() の CPU エンコード時間 (ms) */
+  /** render() の CPU エンコード時間 (ms, 直近フレーム) */
   cpuEncodeMs: number;
-  /** submit から GPU 完了まで (ms, queue.onSubmittedWorkDone)。throttle して計測 */
-  gpuTotalMs: number;
+  /** compute が走ったフレームの GPU 完了時間 (ms, onSubmittedWorkDone, sticky)。フィルタ全点走査込み */
+  gpuComputeMs: number;
+  /** render のみ（compute skip）フレームの GPU 完了時間 (ms, sticky)。gpuComputeMs との差が compute コストの目安 */
+  gpuIdleMs: number;
   /** 現在のズーム倍率 */
   zoom: number;
 }

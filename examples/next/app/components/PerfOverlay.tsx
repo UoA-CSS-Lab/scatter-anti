@@ -49,17 +49,24 @@ export function PerfOverlay() {
     </div>
   );
 
+  const deltaCompute = Math.max(0, stats.gpuComputeMs - stats.gpuIdleMs);
+
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 z-50 select-none rounded-lg bg-black/80 px-3 py-2 text-xs text-gray-100 shadow-lg backdrop-blur-sm">
       <div className="mb-1 font-semibold text-emerald-400">perf (Phase 0)</div>
-      <Row k="fps" v={String(stats.fps)} />
-      <Row k="compute" v={stats.computeRan ? 'ran' : 'skip'} />
+      <Row k="fps*" v={String(stats.fps)} />
+      <Row k="compute" v={stats.computeRan ? 'ran' : 'idle'} />
       <Row k="processed" v={stats.processedCount.toLocaleString()} />
       <Row k="drawn" v={`${stats.drawnCount.toLocaleString()} (${pct}%)`} />
       <Row k="total" v={stats.totalPointCount.toLocaleString()} />
       <Row k="cpu enc" v={`${stats.cpuEncodeMs.toFixed(2)} ms`} />
-      <Row k="gpu" v={`${stats.gpuTotalMs.toFixed(2)} ms`} />
+      <Row k="gpu cmp" v={`${stats.gpuComputeMs.toFixed(2)} ms`} />
+      <Row k="gpu idle" v={`${stats.gpuIdleMs.toFixed(2)} ms`} />
+      <Row k="Δ compute" v={`${deltaCompute.toFixed(2)} ms`} />
       <Row k="zoom" v={stats.zoom.toFixed(2)} />
+      <div className="mt-1 text-[10px] text-gray-500">
+        *fps = render 呼び出し/秒（表示 fps ではない）。processed/drawn は直近 compute フレーム（sticky）
+      </div>
     </div>
   );
 }
