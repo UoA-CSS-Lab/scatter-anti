@@ -917,8 +917,11 @@ export class GpuLayer {
 
     // filteredDisplayMode: 0=hidden, 1=grayed
     computeUint32View[16] = this.filteredPointDisplayMode === 'grayed' ? 1 : 0;
-    // サイズ基準間引き: lodPriority 投入済みなら有効化し、keepFraction（維持率 [0,1]）を渡す。
-    computeUint32View[17] = this.hasLodPriority ? 1 : 0;
+    // サイズ基準間引きは「データ全体が画面に入る俯瞰（zoom<=1=visibleAreaFraction>=1）」のときだけ使う。
+    // ズームインで一部領域だけ見ているときに大域サイズ順を適用すると、小サイズの密集領域が丸ごと
+    // 消える/大サイズ領域が予算超過する（局所被覆が壊れる）ため、その場合は従来の PCG ハッシュ
+    // （ビューポートを局所的に一様サンプル）にフォールバックする。
+    computeUint32View[17] = this.hasLodPriority && this.zoom <= 1.0 ? 1 : 0;
     computeFloatView[18] = lodThreshold / 0xffffffff;
 
     this.context.device.queue.writeBuffer(this.computeUniformBuffer, 0, computeUniformData);
