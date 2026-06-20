@@ -282,8 +282,9 @@ export interface LabelOptions {
   /**
    * ミュートラベルの見た目（bold / 塗り色 / 縁取り色・幅）。未指定は 1.21 互換の flat 表示
    * （非 bold・mutedLabelColor のグレー塗り・縁取り無し）。詳細は MutedLabelStyle 参照。
+   * update() では undefined＝据え置き、null＝既定の flat へ明示的に戻す（実行時に outlined を解除可能）。
    */
-  mutedLabelStyle?: MutedLabelStyle;
+  mutedLabelStyle?: MutedLabelStyle | null;
 }
 
 /**

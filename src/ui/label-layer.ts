@@ -37,8 +37,8 @@ export interface LabelLayerOptions {
   mutedLabelColor?: [number, number, number];
   /** ミュートラベルの不透明度（0-1、未指定は 0.4）。沈める表示の塗り α に使う */
   mutedLabelOpacity?: number;
-  /** ミュートラベルの見た目（bold / 塗り / 縁取り）。未指定は flat（非bold・グレー塗り・縁なし） */
-  mutedLabelStyle?: MutedLabelStyle;
+  /** ミュートラベルの見た目（bold / 塗り / 縁取り）。未指定は flat。update() では null で flat に戻す */
+  mutedLabelStyle?: MutedLabelStyle | null;
   /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件）。未指定は 150。 */
   maxRenderedLabels?: number;
   /** ラベルクリック時のコールバック */
@@ -169,7 +169,7 @@ export class LabelLayer {
     this.mutedLambda = options.mutedLambda;
     this.mutedLabelColor = options.mutedLabelColor ?? [102, 102, 102];
     this.mutedLabelOpacity = options.mutedLabelOpacity ?? 0.4;
-    this.mutedLabelStyle = options.mutedLabelStyle;
+    this.mutedLabelStyle = options.mutedLabelStyle ?? undefined;
     this.maxRenderedLabels = options.maxRenderedLabels ?? DEFAULT_MAX_RENDERED_LABELS;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
@@ -796,7 +796,8 @@ export class LabelLayer {
       this.mutedLabelOpacity = options.mutedLabelOpacity;
     }
     if (options.mutedLabelStyle !== undefined) {
-      this.mutedLabelStyle = options.mutedLabelStyle;
+      // null は「既定の flat に戻す」明示クリア。undefined はガードで素通し（据え置き）。
+      this.mutedLabelStyle = options.mutedLabelStyle ?? undefined;
     }
     if (options.onLabelClick !== undefined) {
       this.onLabelClick = options.onLabelClick;
