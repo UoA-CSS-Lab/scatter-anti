@@ -72,6 +72,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       pointAlpha: options.gpu?.pointAlpha,
       pointSizeScale: options.gpu?.pointSizeScale,
       selectionStyle: options.gpu?.selection,
+      recededClamp: options.gpu?.recededClamp,
     });
 
     this.labelLayer = new LabelLayer({
@@ -376,6 +377,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         pointAlpha: options.gpu?.pointAlpha,
         pointSizeScale: options.gpu?.pointSizeScale,
         selectionStyle: options.gpu?.selection,
+        recededClamp: options.gpu?.recededClamp,
       });
       updatePaths.add('gpu-render-uniforms');
     }

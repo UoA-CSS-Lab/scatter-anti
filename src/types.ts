@@ -229,6 +229,18 @@ export interface GpuOptions {
   pointSizeScale?: number;
   /** selection mask の描画スタイル */
   selection?: SelectionStyle;
+  /** 受動層（dim/gray）のオーバードロークランプ */
+  recededClamp?: RecededClampOptions;
+}
+
+/** 受動層（dim/gray）オーバードロークランプの設定（密集してもオーバードローで不透明化させない） */
+export interface RecededClampOptions {
+  /** クランプ有効か */
+  enabled: boolean;
+  /** 受動層の累積 alpha 上限（0-1, 既定 0.5） */
+  maxAlpha?: number;
+  /** 受動とみなす予約色 [r,g,b]（0-255）。投稿フィルタ非該当の gray 等。省略で dim のみ受動 */
+  recededColor?: [number, number, number] | null;
 }
 
 export interface LabelOptions {

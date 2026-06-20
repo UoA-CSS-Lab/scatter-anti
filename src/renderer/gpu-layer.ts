@@ -5,10 +5,12 @@ import {
   updateIndirectShader,
   brushSelectionShader,
   countSelectionShader,
+  compositeShader,
 } from './shaders.js';
 import type {
   Color4f,
   FilteredPointDisplayMode,
+  RecededClampOptions,
   SelectionStyle,
   SelectionBrushMode,
   BrushBounds,
@@ -18,8 +20,10 @@ import type {
 } from '../types.js';
 import { DEFAULT_VISIBLE_POINT_LIMIT } from '../constants.js';
 
-/** render uniform buffer サイズ（selection style フィールドを含む, byte） */
-const RENDER_UNIFORM_SIZE = 176;
+/** render uniform buffer サイズ（selection style + 受動クランプフィールドを含む, byte） */
+const RENDER_UNIFORM_SIZE = 192;
+/** composite uniform buffer サイズ（maxAlpha, byte） */
+const COMPOSITE_UNIFORM_SIZE = 16;
 /** brush compute uniform buffer サイズ（byte） */
 const BRUSH_UNIFORM_SIZE = 80;
 /** count compute uniform buffer サイズ（byte） */
@@ -68,6 +72,8 @@ export interface GpuLayerOptions {
   pointSizeScale?: number;
   /** selection mask の描画スタイル */
   selectionStyle?: SelectionStyle;
+  /** 受動層（dim/gray）のオーバードロークランプ */
+  recededClamp?: RecededClampOptions;
 }
 
 // ビューポート境界のマージン（クリップ空間）
@@ -141,6 +147,31 @@ export class GpuLayer {
   private filteredIndirectBuffer: GPUBuffer | null = null;
   /** フィルター済みポイント用レンダリングユニフォームバッファ */
   private filteredRenderUniformBuffer: GPUBuffer | null = null;
+
+  // --- 受動層オーバードロークランプ（dim/gray をオフスクリーン累積→合成時に alpha 頭打ち）---
+  /** 受動層描画用 uniform（renderMode=1）。renderBindGroup と同構成で binding0 のみ差し替え */
+  private recededRenderUniformBuffer: GPUBuffer | null = null;
+  /** 受動層描画用バインドグループ（renderMode=1） */
+  private recededRenderBindGroup: GPUBindGroup | null = null;
+  /** 受動層を累積するオフスクリーンRT（canvas サイズ・format 一致） */
+  private offscreenTexture: GPUTexture | null = null;
+  /** オフスクリーンを clamp 合成するパイプライン */
+  private compositePipeline: GPURenderPipeline | null = null;
+  /** composite 用 sampler */
+  private compositeSampler: GPUSampler | null = null;
+  /** composite 用 uniform（maxAlpha） */
+  private compositeUniformBuffer: GPUBuffer | null = null;
+  /** composite 用バインドグループ（offscreen 再生成時に作り直す） */
+  private compositeBindGroup: GPUBindGroup | null = null;
+  /** オフスクリーンの現サイズ（canvas と不一致なら再生成） */
+  private offscreenWidth = 0;
+  private offscreenHeight = 0;
+  /** 受動クランプ有効か（無効なら従来の単一パス＝後方互換） */
+  private recededClampEnabled = false;
+  /** 受動層の累積 alpha 上限 */
+  private recededMaxAlpha = 0.5;
+  /** 受動とみなす予約色 [r,g,b]（0-255）。null=色ベース判定なし（dim のみ受動） */
+  private recededColor: [number, number, number] | null = null;
 
   /** GPUフィルター条件（range + optional soft-edge fade） */
   private gpuFilterConditions: {
@@ -219,6 +250,7 @@ export class GpuLayer {
     this.pointAlpha = Math.max(0, Math.min(1, options.pointAlpha ?? 1.0));
     this.pointSizeScale = Math.max(0.01, options.pointSizeScale ?? 1.0);
     this.selectionStyle = this.resolveSelectionStyle(options.selectionStyle);
+    this.applyRecededClamp(options.recededClamp);
   }
 
   /** 部分指定の SelectionStyle を既定値で埋める */
@@ -321,6 +353,36 @@ export class GpuLayer {
       },
     });
 
+    // 受動層クランプ用 composite パイプライン（オフスクリーンをサンプルし alpha を頭打ちにして合成）。
+    // composite の出力は premultiplied なので blend は premultiplied-over（src=one）。
+    const compositeShaderModule = this.context.device.createShaderModule({
+      code: compositeShader,
+    });
+    this.compositePipeline = this.context.device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: compositeShaderModule, entryPoint: 'vertexMain' },
+      fragment: {
+        module: compositeShaderModule,
+        entryPoint: 'fragmentMain',
+        targets: [
+          {
+            format: this.context.format,
+            blend: {
+              color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+              alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            },
+          },
+        ],
+      },
+      primitive: { topology: 'triangle-list' },
+    });
+    this.compositeSampler = this.context.device.createSampler({
+      magFilter: 'nearest',
+      minFilter: 'nearest',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    });
+
     const brushShaderModule = this.context.device.createShaderModule({
       code: brushSelectionShader,
     });
@@ -419,6 +481,16 @@ export class GpuLayer {
 
     this.filteredRenderUniformBuffer = this.context.device.createBuffer({
       size: RENDER_UNIFORM_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // 受動層描画用 uniform（renderMode=1）と composite 用 uniform（maxAlpha）。
+    this.recededRenderUniformBuffer = this.context.device.createBuffer({
+      size: RENDER_UNIFORM_SIZE,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    this.compositeUniformBuffer = this.context.device.createBuffer({
+      size: COMPOSITE_UNIFORM_SIZE,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
@@ -529,6 +601,7 @@ export class GpuLayer {
       !this.lodPriorityBuffer ||
       !this.filteredIndirectBuffer ||
       !this.filteredRenderUniformBuffer ||
+      !this.recededRenderUniformBuffer ||
       !this.brushSelectionPipeline ||
       !this.countSelectionPipeline ||
       !this.selectionFlagsBuffer ||
@@ -575,6 +648,20 @@ export class GpuLayer {
       layout: this.renderPipeline.getBindGroupLayout(0),
       entries: [
         { binding: 0, resource: { buffer: this.renderUniformBuffer } },
+        { binding: 1, resource: { buffer: this.allPointsBuffer } },
+        { binding: 2, resource: { buffer: this.visibleIndicesBuffer } },
+        { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
+        { binding: 4, resource: { buffer: this.selectionFlagsBuffer } },
+        { binding: 5, resource: { buffer: this.selectionCountBuffer } },
+        { binding: 6, resource: { buffer: this.hoverFlagsBuffer } },
+      ],
+    });
+
+    // 受動層描画用（renderMode=1）。renderBindGroup と同じ可視インデックスで uniform だけ差し替え。
+    this.recededRenderBindGroup = this.context.device.createBindGroup({
+      layout: this.renderPipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: this.recededRenderUniformBuffer } },
         { binding: 1, resource: { buffer: this.allPointsBuffer } },
         { binding: 2, resource: { buffer: this.visibleIndicesBuffer } },
         { binding: 3, resource: { buffer: this.filterColumnsBuffer } },
@@ -857,12 +944,35 @@ export class GpuLayer {
     renderFloatView[41] = this.selectionStyle.selectedSizeScale;
     renderFloatView[42] = this.selectionStyle.highlightSelected ? 1.0 : 0.0; // selectionHighlight @168
     renderFloatView[43] = this.forceSelectionActive ? 1.0 : 0.0; // forceSelectionActive @172
+    // 受動クランプ: main は renderMode=2(焦点のみ) / 無効時は 0(全描画)。受動予約色（gray）も渡す。
+    renderUint32View[44] = this.recededClampEnabled ? 2 : 0; // renderMode @176
+    const rc = this.recededColor;
+    renderFloatView[45] = rc ? rc[0] / 255.0 : -1.0; // recededR @180（負=色ベース判定なし）
+    renderFloatView[46] = rc ? rc[1] / 255.0 : -1.0; // recededG @184
+    renderFloatView[47] = rc ? rc[2] / 255.0 : -1.0; // recededB @188
     this.context.device.queue.writeBuffer(this.renderUniformBuffer, 0, renderUniformData);
 
-    // フィルター済みポイント用ユニフォーム（grayedMode = 1.0）
+    // 受動層描画用ユニフォーム（renderMode = 1 = 受動のみ）。main と同内容で renderMode だけ差し替え。
+    if (this.recededRenderUniformBuffer) {
+      const recededData = renderUniformData.slice(0);
+      new Uint32Array(recededData)[44] = 1; // renderMode = 受動のみ
+      this.context.device.queue.writeBuffer(this.recededRenderUniformBuffer, 0, recededData);
+    }
+
+    // composite uniform（受動層の累積 alpha 上限）
+    if (this.compositeUniformBuffer) {
+      this.context.device.queue.writeBuffer(
+        this.compositeUniformBuffer,
+        0,
+        new Float32Array([this.recededMaxAlpha])
+      );
+    }
+
+    // フィルター済みポイント用ユニフォーム（grayedMode = 1.0、renderMode = 0 = discard しない）
     if (this.filteredRenderUniformBuffer) {
       const filteredRenderUniformData = renderUniformData.slice(0);
       new Float32Array(filteredRenderUniformData)[21] = 1.0; // grayedMode = 1.0
+      new Uint32Array(filteredRenderUniformData)[44] = 0; // renderMode = 全（discard なし）
       // grayed パスはフィルタ範囲 [min,max] の外側の点を描画するため、フェードを
       // 適用すると computeFadeAlpha が 0 になり点が消えてしまう（gray 表示にならない）。
       // fadeEdgeFlags を 0 にしてフェードを無効化し、常に gray で表示する。
@@ -930,6 +1040,45 @@ export class GpuLayer {
   /**
    * 散布図をレンダリングする
    */
+  /**
+   * 受動層オフスクリーンRT と composite bind group を canvas サイズに合わせて用意する。
+   * サイズ変化時は作り直す。準備できれば true（受動クランプの3パスを実行可能）。
+   */
+  private ensureOffscreen(): boolean {
+    const device = this.context.device;
+    if (
+      !device ||
+      !this.compositePipeline ||
+      !this.compositeSampler ||
+      !this.compositeUniformBuffer ||
+      !this.recededRenderBindGroup
+    ) {
+      return false;
+    }
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+    if (w === 0 || h === 0) return false;
+    if (!this.offscreenTexture || this.offscreenWidth !== w || this.offscreenHeight !== h) {
+      this.offscreenTexture?.destroy();
+      this.offscreenTexture = device.createTexture({
+        size: { width: w, height: h },
+        format: this.context.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      });
+      this.offscreenWidth = w;
+      this.offscreenHeight = h;
+      this.compositeBindGroup = device.createBindGroup({
+        layout: this.compositePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.compositeUniformBuffer } },
+          { binding: 1, resource: this.compositeSampler },
+          { binding: 2, resource: this.offscreenTexture.createView() },
+        ],
+      });
+    }
+    return !!this.compositeBindGroup;
+  }
+
   render(): void {
     if (
       !this.context.device ||
@@ -1003,7 +1152,66 @@ export class GpuLayer {
       this.filterResultValid = true;
     }
 
-    {
+    if (this.recededClampEnabled && this.ensureOffscreen()) {
+      // ── 受動層クランプ: 受動(dim/gray)をオフスクリーンに通常累積 → 合成時に alpha 頭打ち → 焦点を上に ──
+      // 1) 受動層（renderMode=1）をオフスクリーン（透明クリア）に累積描画。
+      {
+        const offPass = commandEncoder.beginRenderPass({
+          colorAttachments: [
+            {
+              view: this.offscreenTexture!.createView(),
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              loadOp: 'clear',
+              storeOp: 'store',
+            },
+          ],
+        });
+        offPass.setPipeline(this.renderPipeline);
+        offPass.setVertexBuffer(0, this.quadVertexBuffer);
+        offPass.setIndexBuffer(this.indexBuffer!, 'uint16');
+        offPass.setBindGroup(0, this.recededRenderBindGroup!);
+        offPass.drawIndexedIndirect(this.indirectBuffer, 0);
+        offPass.end();
+      }
+      // 2) main: 背景クリア → 時間フィルタ層(背面・対象外) → 受動層を clamp 合成 → 焦点層(renderMode=2)。
+      {
+        const textureView = this.context.context.getCurrentTexture().createView();
+        const mainPass = commandEncoder.beginRenderPass({
+          colorAttachments: [
+            {
+              view: textureView,
+              clearValue: {
+                r: this.backgroundColor.r,
+                g: this.backgroundColor.g,
+                b: this.backgroundColor.b,
+                a: this.backgroundColor.a,
+              },
+              loadOp: 'clear',
+              storeOp: 'store',
+            },
+          ],
+        });
+        if (isGrayed) {
+          mainPass.setPipeline(this.renderPipeline);
+          mainPass.setVertexBuffer(0, this.quadVertexBuffer);
+          mainPass.setIndexBuffer(this.indexBuffer!, 'uint16');
+          mainPass.setBindGroup(0, this.filteredRenderBindGroup);
+          mainPass.drawIndexedIndirect(this.filteredIndirectBuffer, 0);
+        }
+        // 受動層オフスクリーンを clamp 合成（フルスクリーン三角形）。
+        mainPass.setPipeline(this.compositePipeline!);
+        mainPass.setBindGroup(0, this.compositeBindGroup!);
+        mainPass.draw(3);
+        // 焦点層（renderMode=2 で受動を discard）。
+        mainPass.setPipeline(this.renderPipeline);
+        mainPass.setVertexBuffer(0, this.quadVertexBuffer);
+        mainPass.setIndexBuffer(this.indexBuffer!, 'uint16');
+        mainPass.setBindGroup(0, this.renderBindGroup);
+        mainPass.drawIndexedIndirect(this.indirectBuffer, 0);
+        mainPass.end();
+      }
+    } else {
+      // ── 従来の単一パス（受動クランプ無効＝後方互換）──
       const textureView = this.context.context.getCurrentTexture().createView();
       const renderPass = commandEncoder.beginRenderPass({
         colorAttachments: [
@@ -1162,6 +1370,10 @@ export class GpuLayer {
       });
       needsUniformUpdate = true;
     }
+    if (options.recededClamp !== undefined) {
+      this.applyRecededClamp(options.recededClamp);
+      needsUniformUpdate = true;
+    }
 
     if (needsUniformUpdate) {
       this.updateUniforms();
@@ -1313,6 +1525,28 @@ export class GpuLayer {
    */
   setSelectionStyle(style: SelectionStyle): void {
     this.selectionStyle = this.resolveSelectionStyle({ ...this.selectionStyle, ...style });
+    this.updateUniforms();
+  }
+
+  /** recededClamp オプションをフィールドへ反映（updateUniforms は呼ばない＝呼び出し側で制御）。 */
+  private applyRecededClamp(opts?: RecededClampOptions): void {
+    if (!opts) return;
+    this.recededClampEnabled = opts.enabled;
+    if (opts.maxAlpha !== undefined) {
+      this.recededMaxAlpha = Math.max(0, Math.min(1, opts.maxAlpha));
+    }
+    if (opts.recededColor !== undefined) {
+      this.recededColor = opts.recededColor;
+    }
+  }
+
+  /**
+   * 受動層（dim/gray）のオーバードロークランプを設定する。enabled=true で受動点をオフスクリーンに
+   * 累積し、合成時に累積 alpha を maxAlpha で頭打ちにする（密集しても不透明化しない）。
+   * recededColor を指定すると、その色の点（例: 投稿フィルタ非該当の gray）も受動扱いにする。
+   */
+  setRecededClamp(opts: RecededClampOptions): void {
+    this.applyRecededClamp(opts);
     this.updateUniforms();
   }
 
@@ -1607,6 +1841,9 @@ export class GpuLayer {
     this.filteredCounterBuffer?.destroy();
     this.filteredIndirectBuffer?.destroy();
     this.filteredRenderUniformBuffer?.destroy();
+    this.recededRenderUniformBuffer?.destroy();
+    this.compositeUniformBuffer?.destroy();
+    this.offscreenTexture?.destroy();
     this.selectionFlagsBuffer?.destroy();
     this.selectionCountBuffer?.destroy();
     this.hoverFlagsBuffer?.destroy();
