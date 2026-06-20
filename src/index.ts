@@ -24,6 +24,8 @@ export type {
   BrushOptions,
   SelectionStyle,
   RecededClampOptions,
+  // Label muted style
+  MutedLabelStyle,
   // Update introspection types
   ScatterPlotUpdatePath,
   ScatterPlotUpdatePlan,

@@ -5,6 +5,7 @@ import type {
   HoverOutlineOptions,
   LabelIdentifier,
   LabelHoverCallback,
+  MutedLabelStyle,
 } from '../types.js';
 import type { DataLayer } from '../data/data-layer.js';
 import { getPointColor, getPointSize } from '../util/point.js';
@@ -36,6 +37,8 @@ export interface LabelLayerOptions {
   mutedLabelColor?: [number, number, number];
   /** ミュートラベルの不透明度（0-1、未指定は 0.4）。沈める表示の塗り α に使う */
   mutedLabelOpacity?: number;
+  /** ミュートラベルの見た目（bold / 塗り / 縁取り）。未指定は flat。update() では null で flat に戻す */
+  mutedLabelStyle?: MutedLabelStyle | null;
   /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件）。未指定は 150。 */
   maxRenderedLabels?: number;
   /** ラベルクリック時のコールバック */
@@ -77,6 +80,8 @@ export class LabelLayer {
   private mutedLabelColor: [number, number, number] = [102, 102, 102];
   /** ミュートラベルの不透明度（沈める表示の塗り α）。既定 0.4 */
   private mutedLabelOpacity: number = 0.4;
+  /** ミュートラベルの見た目（未指定は flat: 非bold・mutedLabelColor 塗り・縁取り無し） */
+  private mutedLabelStyle?: MutedLabelStyle;
   /** 描画するラベルの最大数（クラスタサイズ順 上位 N 件） */
   private maxRenderedLabels: number = DEFAULT_MAX_RENDERED_LABELS;
   /** ラベル幅キャッシュ（テキスト→基準フォントサイズでの幅）。measureText の毎フレーム呼び出しを回避 */
@@ -97,6 +102,7 @@ export class LabelLayer {
     muted: undefined as LabelFilterLambda | undefined,
     mutedColor: null as [number, number, number] | null,
     mutedOpacity: NaN,
+    mutedStyle: undefined as MutedLabelStyle | undefined,
     hoveredLabel: null as Label | null,
     hoveredPoint: null as Record<string, any> | null,
     maxRendered: -1,
@@ -163,6 +169,7 @@ export class LabelLayer {
     this.mutedLambda = options.mutedLambda;
     this.mutedLabelColor = options.mutedLabelColor ?? [102, 102, 102];
     this.mutedLabelOpacity = options.mutedLabelOpacity ?? 0.4;
+    this.mutedLabelStyle = options.mutedLabelStyle ?? undefined;
     this.maxRenderedLabels = options.maxRenderedLabels ?? DEFAULT_MAX_RENDERED_LABELS;
     this.onLabelClick = options.onLabelClick;
     this.onPointHover = options.onPointHover;
@@ -242,6 +249,7 @@ export class LabelLayer {
       p.muted === this.mutedLambda &&
       p.mutedColor === this.mutedLabelColor &&
       p.mutedOpacity === this.mutedLabelOpacity &&
+      p.mutedStyle === this.mutedLabelStyle &&
       p.hoveredLabel === this.hoveredLabel &&
       p.hoveredPoint === this.hoveredPoint &&
       p.maxRendered === this.maxRenderedLabels &&
@@ -261,6 +269,7 @@ export class LabelLayer {
     p.muted = this.mutedLambda;
     p.mutedColor = this.mutedLabelColor;
     p.mutedOpacity = this.mutedLabelOpacity;
+    p.mutedStyle = this.mutedLabelStyle;
     p.hoveredLabel = this.hoveredLabel;
     p.hoveredPoint = this.hoveredPoint;
     p.maxRendered = this.maxRenderedLabels;
@@ -353,25 +362,33 @@ export class LabelLayer {
           const textHeight = scaledFontSize;
 
           if (isMuted) {
-            // muted（内容フィルタ非該当）= 最優先で「沈める」。アクティブ表示（シャドウ＋bold＋
-            // 白抜き＋色縁取り）を流用するとグレーにしても目立つため、シャドウ無し・非 bold・
-            // グレー塗り・縁取り無しのフラットなグレー文字にする。選択 dim 中（!passedFilter）は
-            // 従来の薄さ（unmatchedLabelOpacity）以下に抑え、非選択ミュートが浮かないようにする。
+            // muted（内容フィルタ非該当）= 最優先で「沈める」。元の「白抜き＋色縁＋影＋bold」を
+            // そのまま流用すると目立つため、ドロップシャドウは常に付けない。塗り/縁取り/bold は
+            // mutedLabelStyle で決める（未指定は flat: 非 bold・mutedLabelColor のグレー塗り・縁取り無し）。
+            // 選択 dim 中（!passedFilter）は従来の薄さ（unmatchedLabelOpacity）以下に抑え、浮かせない。
             const a = passedFilter
               ? this.mutedLabelOpacity
               : Math.min(
                   this.mutedLabelOpacity,
                   this.unmatchedLabelOpacity ?? this.mutedLabelOpacity
                 );
-            const [mr, mg, mb] = this.mutedLabelColor;
-            this.labelContext.font = `${scaledFontSize}px sans-serif`; // bold を外す
+            const style = this.mutedLabelStyle;
+            const [fr, fg, fb] = style?.fillColor ?? this.mutedLabelColor;
+            const stroke = style?.strokeColor ?? null;
+            this.labelContext.font = `${style?.bold ? 'bold ' : ''}${scaledFontSize}px sans-serif`;
             this.labelContext.shadowColor = 'transparent';
             this.labelContext.shadowBlur = 0;
             this.labelContext.shadowOffsetX = 0;
             this.labelContext.shadowOffsetY = 0;
-            this.labelContext.fillStyle = `rgba(${mr}, ${mg}, ${mb}, ${a})`;
-            this.labelContext.strokeStyle = 'transparent';
-            this.labelContext.lineWidth = 0;
+            this.labelContext.fillStyle = `rgba(${fr}, ${fg}, ${fb}, ${a})`;
+            if (stroke) {
+              const [sr, sg, sb] = stroke;
+              this.labelContext.strokeStyle = `rgba(${sr}, ${sg}, ${sb}, ${a})`;
+              this.labelContext.lineWidth = style?.strokeWidth ?? 2;
+            } else {
+              this.labelContext.strokeStyle = 'transparent';
+              this.labelContext.lineWidth = 0;
+            }
           } else if (passedFilter) {
             this.labelContext.shadowColor = 'rgba(0, 0, 0, 0.4)';
             this.labelContext.shadowBlur = 6;
@@ -777,6 +794,10 @@ export class LabelLayer {
     }
     if (options.mutedLabelOpacity !== undefined) {
       this.mutedLabelOpacity = options.mutedLabelOpacity;
+    }
+    if (options.mutedLabelStyle !== undefined) {
+      // null は「既定の flat に戻す」明示クリア。undefined はガードで素通し（据え置き）。
+      this.mutedLabelStyle = options.mutedLabelStyle ?? undefined;
     }
     if (options.onLabelClick !== undefined) {
       this.onLabelClick = options.onLabelClick;

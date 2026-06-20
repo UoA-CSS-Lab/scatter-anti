@@ -275,11 +275,32 @@ export interface LabelOptions {
   /** ミュート時のストローク色 [r, g, b]（0-255）。未指定は [102, 102, 102]（中立グレー）。 */
   mutedLabelColor?: [number, number, number];
   /**
-   * ミュート（mutedLambda=true）ラベルの不透明度（0-1、未指定は 0.4）。ミュートは「目立たせ
-   * ない」のが目的なので、シャドウ無し・非 bold・グレー塗り・縁取り無しの沈める表示にし、この
-   * 不透明度で描く。filterLambda の dim 中（非選択）はさらに unmatchedLabelOpacity 以下に抑える。
+   * ミュート（mutedLambda=true）ラベルの不透明度（0-1、未指定は 0.4）。塗り・縁取りの alpha に
+   * 適用する。filterLambda の dim 中（非選択）はさらに unmatchedLabelOpacity 以下に抑える。
    */
   mutedLabelOpacity?: number;
+  /**
+   * ミュートラベルの見た目（bold / 塗り色 / 縁取り色・幅）。未指定は 1.21 互換の flat 表示
+   * （非 bold・mutedLabelColor のグレー塗り・縁取り無し）。詳細は MutedLabelStyle 参照。
+   * update() では undefined＝据え置き、null＝既定の flat へ明示的に戻す（実行時に outlined を解除可能）。
+   */
+  mutedLabelStyle?: MutedLabelStyle | null;
+}
+
+/**
+ * ミュート（mutedLambda=true）ラベルの見た目。未指定は 1.21 互換の flat（非 bold・mutedLabelColor
+ * のグレー塗り・縁取り無し）。active と書体を揃えたいとき outlined に指定する。いずれもドロップ
+ * シャドウは付かない（目立ち要因のため非公開）。不透明度は mutedLabelOpacity を共用する。
+ */
+export interface MutedLabelStyle {
+  /** 太字にするか（既定 false）。active ラベルと書体を揃えたいとき true */
+  bold?: boolean;
+  /** 文字塗りの色 [r, g, b]（0-255、未指定は mutedLabelColor）。outlined では薄めのグレー推奨 */
+  fillColor?: [number, number, number];
+  /** 縁取り色 [r, g, b]（0-255）。未指定 / null で縁取り無し。塗りよりやや濃いグレー推奨 */
+  strokeColor?: [number, number, number] | null;
+  /** 縁取り幅 px（既定 2、strokeColor 指定時のみ有効） */
+  strokeWidth?: number;
 }
 
 export interface InteractionOptions {
