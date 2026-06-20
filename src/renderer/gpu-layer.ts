@@ -1169,11 +1169,18 @@ export class GpuLayer {
         offPass.setPipeline(this.renderPipeline);
         offPass.setVertexBuffer(0, this.quadVertexBuffer);
         offPass.setIndexBuffer(this.indexBuffer!, 'uint16');
+        // 時間フィルタの灰色層（grayedMode=1）も受動なので、ここで累積してクランプ対象にする
+        // （main へ直接描くと composite を迂回し、密集で不透明化してしまう）。背面なので先に描く。
+        if (isGrayed) {
+          offPass.setBindGroup(0, this.filteredRenderBindGroup);
+          offPass.drawIndexedIndirect(this.filteredIndirectBuffer, 0);
+        }
+        // 通常 visible のうち受動（renderMode=1 で焦点を discard）を累積。
         offPass.setBindGroup(0, this.recededRenderBindGroup!);
         offPass.drawIndexedIndirect(this.indirectBuffer, 0);
         offPass.end();
       }
-      // 2) main: 背景クリア → 時間フィルタ層(背面・対象外) → 受動層を clamp 合成 → 焦点層(renderMode=2)。
+      // 2) main: 背景クリア → 受動層(時間フィルタ灰色＋dim/gray を累積済み)を clamp 合成 → 焦点層(renderMode=2)。
       {
         const textureView = this.context.context.getCurrentTexture().createView();
         const mainPass = commandEncoder.beginRenderPass({
@@ -1191,14 +1198,7 @@ export class GpuLayer {
             },
           ],
         });
-        if (isGrayed) {
-          mainPass.setPipeline(this.renderPipeline);
-          mainPass.setVertexBuffer(0, this.quadVertexBuffer);
-          mainPass.setIndexBuffer(this.indexBuffer!, 'uint16');
-          mainPass.setBindGroup(0, this.filteredRenderBindGroup);
-          mainPass.drawIndexedIndirect(this.filteredIndirectBuffer, 0);
-        }
-        // 受動層オフスクリーンを clamp 合成（フルスクリーン三角形）。
+        // 受動層オフスクリーン（時間フィルタ灰色＋dim/gray を累積済み）を clamp 合成（フルスクリーン三角形）。
         mainPass.setPipeline(this.compositePipeline!);
         mainPass.setBindGroup(0, this.compositeBindGroup!);
         mainPass.draw(3);
