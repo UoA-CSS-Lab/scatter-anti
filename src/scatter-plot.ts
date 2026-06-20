@@ -87,6 +87,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
       hoverOutlineOptions: options.labels?.hoverOutlineOptions,
       mutedLambda: options.labels?.mutedLambda,
       mutedLabelColor: options.labels?.mutedLabelColor,
+      mutedLabelOpacity: options.labels?.mutedLabelOpacity,
       dataLayer: this.dataLayer,
     });
 
@@ -392,6 +393,7 @@ export class ScatterPlot extends EventEmitter<ScatterPlotEventMap> {
         hoverOutlineOptions: options.labels.hoverOutlineOptions,
         mutedLambda: options.labels.mutedLambda,
         mutedLabelColor: options.labels.mutedLabelColor,
+        mutedLabelOpacity: options.labels.mutedLabelOpacity,
       });
 
       const labelSource = options.labels.file ?? options.labels.url;

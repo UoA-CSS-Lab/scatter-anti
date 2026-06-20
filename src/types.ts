@@ -274,6 +274,12 @@ export interface LabelOptions {
   mutedLambda?: LabelFilterLambda;
   /** ミュート時のストローク色 [r, g, b]（0-255）。未指定は [102, 102, 102]（中立グレー）。 */
   mutedLabelColor?: [number, number, number];
+  /**
+   * ミュート（mutedLambda=true）ラベルの不透明度（0-1、未指定は 0.4）。ミュートは「目立たせ
+   * ない」のが目的なので、シャドウ無し・非 bold・グレー塗り・縁取り無しの沈める表示にし、この
+   * 不透明度で描く。filterLambda の dim 中（非選択）はさらに unmatchedLabelOpacity 以下に抑える。
+   */
+  mutedLabelOpacity?: number;
 }
 
 export interface InteractionOptions {
