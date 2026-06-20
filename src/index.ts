@@ -23,6 +23,7 @@ export type {
   ScreenBrushRect,
   BrushOptions,
   SelectionStyle,
+  RecededClampOptions,
   // Update introspection types
   ScatterPlotUpdatePath,
   ScatterPlotUpdatePlan,

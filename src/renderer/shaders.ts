@@ -220,6 +220,11 @@ struct Uniforms {
   selectionSelectedSizeScale: f32,  // 選択点のサイズ倍率
   selectionHighlight: f32,          // 1=選択点を強調（色+サイズ）, 0=元の色・サイズを保持（dim-only）
   forceSelectionActive: f32,        // 1=選択点が0でも選択 dim を強制（ブラシ操作中など）
+  // --- 受動層オーバードロークランプ ---
+  renderMode: u32,                  // 0=全描画(従来), 1=受動(dim/gray)のみ, 2=焦点のみ
+  recededR: f32,                    // 受動とみなす予約色 RGB（負で無効＝色ベース判定なし）
+  recededG: f32,
+  recededB: f32,
 }
 
 struct VertexOutput {
@@ -227,6 +232,7 @@ struct VertexOutput {
   @location(0) color: vec4<f32>,
   @location(1) pointCoord: vec2<f32>,
   @location(2) fadeAlpha: f32,
+  @location(3) isReceded: f32,       // 1=受動層（dim/gray）, 0=焦点層
 }
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -339,8 +345,18 @@ fn vertexMain(
 
   if (uniforms.grayedMode > 0.5) {
     output.color = vec4<f32>(0.6, 0.6, 0.6, 0.35);
+    output.isReceded = 1.0; // 時間フィルタ層（grayed）も受動扱い
   } else {
     var color = unpackColor(point.color);
+    // 受動判定は選択減衰前の素の色で行う：非選択 dim、または予約色（フィルタ非該当のグレー）一致。
+    let isDim = selectionActive && !selected && !hovered;
+    // 予約色は厳密値（u8/255 は f32 で正確に往復）なので、しきい値は丸め誤差吸収用に狭く取り、
+    // クラスタ配色がグレー近傍に当たる誤検出面を最小化する（±1/255 程度）。
+    let isGrayColor = uniforms.recededR >= 0.0 &&
+      abs(color.r - uniforms.recededR) < 0.004 &&
+      abs(color.g - uniforms.recededG) < 0.004 &&
+      abs(color.b - uniforms.recededB) < 0.004;
+    output.isReceded = select(0.0, 1.0, isDim || isGrayColor);
     if (selectionActive) {
       if (selected && uniforms.selectionHighlight > 0.5) {
         color = uniforms.selectionColor;
@@ -360,6 +376,14 @@ fn vertexMain(
 
 @fragment
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
+  // 受動/焦点パスの振り分け（1=受動のみ, 2=焦点のみ, 0=全描画）。
+  if (uniforms.renderMode == 1u && input.isReceded < 0.5) {
+    discard;
+  }
+  if (uniforms.renderMode == 2u && input.isReceded > 0.5) {
+    discard;
+  }
+
   let d = input.pointCoord - vec2<f32>(0.5);
   let distSq = dot(d, d);
 
@@ -370,6 +394,56 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4<f32> {
   let alpha = smoothstep(0.25, 0.23, distSq);
 
   return vec4<f32>(input.color.rgb, input.color.a * alpha * uniforms.pointAlpha * input.fadeAlpha);
+}
+`;
+
+/**
+ * 受動層オフスクリーン（premultiplied 累積）を main へ合成するシェーダー。
+ * 累積 alpha を maxAlpha で頭打ちにして「密集してもオーバードローで不透明化しない」を実現する。
+ * フルスクリーン三角形でオフスクリーンをサンプルし、premultiplied を保ったまま rgb を比例スケール。
+ */
+export const compositeShader = `
+struct CompositeUniforms {
+  maxAlpha: f32,
+}
+
+@group(0) @binding(0) var<uniform> cu: CompositeUniforms;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var tex: texture_2d<f32>;
+
+struct CompositeOut {
+  @builtin(position) position: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vertexMain(@builtin(vertex_index) vi: u32) -> CompositeOut {
+  // フルスクリーン三角形（3頂点でクリップ空間を覆う）
+  var positions = array<vec2<f32>, 3>(
+    vec2<f32>(-1.0, -1.0),
+    vec2<f32>( 3.0, -1.0),
+    vec2<f32>(-1.0,  3.0)
+  );
+  let p = positions[vi];
+  var out: CompositeOut;
+  out.position = vec4<f32>(p, 0.0, 1.0);
+  // clip → テクスチャ uv（y 反転）。offscreen と canvas は同じ clip→fb 写像なので画面位置が一致する。
+  out.uv = vec2<f32>((p.x + 1.0) * 0.5, (1.0 - p.y) * 0.5);
+  return out;
+}
+
+@fragment
+fn fragmentMain(input: CompositeOut) -> @location(0) vec4<f32> {
+  // offscreen は premultiplied 累積（rgb は既に ×a）。累積 a を maxAlpha で頭打ちにし、
+  // premultiplied を保つよう rgb を同じ比率でスケールする。
+  let c = textureSample(tex, samp, input.uv);
+  let a = c.a;
+  if (a <= 0.0001) {
+    discard;
+  }
+  let aClamped = min(cu.maxAlpha, a);
+  let scale = aClamped / a;
+  return vec4<f32>(c.rgb * scale, aClamped);
 }
 `;
 
