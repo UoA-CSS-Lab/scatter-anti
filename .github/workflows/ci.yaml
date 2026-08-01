@@ -17,7 +17,7 @@ jobs:
       NPM_CONFIG_REGISTRY: https://npm.flatt.tech/
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
       - name: Setup Takumi Guard (npm)
@@ -64,14 +64,14 @@ jobs:
           - https://registry.npmjs.org
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: ${{ matrix.registry-url == 'https://npm.pkg.github.com' }}
         with:
           node-version: 20
           registry-url: ${{ matrix.registry-url }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: ${{ matrix.registry-url == 'https://registry.npmjs.org' }}
         with:
           node-version: 20
